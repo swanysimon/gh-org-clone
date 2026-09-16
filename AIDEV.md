@@ -482,8 +482,8 @@ needs them. Do not go looking in other stages for context.
 This is the largest stage. If it must be split, split it as worker-pool → signal handling → lock file,
 in that order, each sub-step still compiling.
 
-- [ ] `jj new -m "feat: concurrent run orchestration with signal-safe state"`
-- [ ] Add the result type to `main.go`. Errors travel **in** this struct, never out of a worker, so one
+- [x] `jj new -m "feat: concurrent run orchestration with signal-safe state"`
+- [x] Add the result type to `main.go`. Errors travel **in** this struct, never out of a worker, so one
       repo's failure can never abort another's work.
       ```go
       type result struct {
@@ -496,23 +496,23 @@ in that order, each sub-step still compiling.
       	Err         error
       }
       ```
-- [ ] In `run`, after config resolution, preflight with `exec.LookPath("gh")` and `exec.LookPath("git")`.
+- [x] In `run`, after config resolution, preflight with `exec.LookPath("gh")` and `exec.LookPath("git")`.
       A missing binary is an actionable error naming the tool and `return 1`. Do **not** add a `gh auth
       status` preflight — `gh repo list` already fails in under a second and its stderr is the better
       message.
-- [ ] Wrap the context with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`.
-- [ ] `os.MkdirAll` the org dir, `repos/` and `archives/` with mode `0o700`. This tree can hold private
+- [x] Wrap the context with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`.
+- [x] `os.MkdirAll` the org dir, `repos/` and `archives/` with mode `0o700`. This tree can hold private
       source code, so it must not be world- or group-readable.
-- [ ] Acquire a per-org lock: `os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)`, write
+- [x] Acquire a per-org lock: `os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)`, write
       the pid and start time into it, and `defer os.Remove(lockPath)`. If it already exists, fail with an
       error naming the file and telling the user to delete it if the previous run died. Two concurrent
       runs of the same org would otherwise interleave clones and last-write-wins the state file.
-- [ ] Sweep leftovers from a previous interrupted run: remove every `<reposDir>/.tmp-*` directory. These
+- [x] Sweep leftovers from a previous interrupted run: remove every `<reposDir>/.tmp-*` directory. These
       are ours by construction and can never contain user data.
-- [ ] Call `listRepos`. On failure, print the error (which carries gh's stderr) and `return 1`. Never
+- [x] Call `listRepos`. On failure, print the error (which carries gh's stderr) and `return 1`. Never
       continue with a partial listing: a truncated listing is indistinguishable from every repo having
       been deleted upstream.
-- [ ] `loadState`, then run a **sequential** pre-pass — single-threaded, before any goroutine starts —
+- [x] `loadState`, then run a **sequential** pre-pass — single-threaded, before any goroutine starts —
       doing all of the following:
       - Drop forks when `!cfg.IncludeForks`, reporting each under `-v`.
       - Drop repos failing `validRepoName`, with an error for each.
@@ -525,9 +525,9 @@ in that order, each sub-step still compiling.
         Without this a rename costs an orphaned directory plus a full re-clone.
       - For each surviving repo, `os.Stat` `<reposDir>/<name>` and `<reposDir>/<name>/.git` and
         `<archivesDir>/<name>.json`, then call `decide`.
-- [ ] If `cfg.DryRun`, print each repo's planned action and reason to `stdout` and `return 0` here,
+- [x] If `cfg.DryRun`, print each repo's planned action and reason to `stdout` and `return 0` here,
       before any subprocess runs.
-- [ ] Start `cfg.Concurrency` worker goroutines reading tasks from a buffered channel and writing
+- [x] Start `cfg.Concurrency` worker goroutines reading tasks from a buffered channel and writing
       `result` values to a results channel. Each worker derives a per-command timeout from `cfg.Timeout`.
       Dispatch by action: `actionClone` → clone then `updateWorktree`; `actionFetch` → fetch then
       `updateWorktree`; `actionArchive`/`actionAdoptArchived` → `archiveRepo`; `actionUnarchive` →
@@ -535,21 +535,21 @@ in that order, each sub-step still compiling.
       a warning that they are now stale (deleting them could destroy the only copy of history that has
       since been force-pushed); `actionSkip` → no subprocess at all; `actionNotARepo` → a report-only
       failure that touches nothing.
-- [ ] Collect results in a **single** collector goroutine (or the main goroutine) after closing the task
+- [x] Collect results in a **single** collector goroutine (or the main goroutine) after closing the task
       channel, and mutate `state.Repos` only there. No mutex, no `sync.Map` — race-free by construction,
       and `-race` proves it. Set `PushedAt` on a repo **only** when `result.Err == nil`; that single rule
       is what makes a failed repo automatically eligible next run with no retry bookkeeping.
-- [ ] For repos present in state but absent from the listing: report them and **never delete anything**.
+- [x] For repos present in state but absent from the listing: report them and **never delete anything**.
       Absence is indistinguishable from the token losing access to a private repo, so deleting would be
       data loss. Add an `AIDEV:` comment naming a future `-prune` flag as the upgrade path.
-- [ ] Deliberately do **not** record `PushedAt` for a repo whose working tree was dirty, so the warning
+- [x] Deliberately do **not** record `PushedAt` for a repo whose working tree was dirty, so the warning
       repeats every run instead of silently serving a stale tree forever. Add an `AIDEV:` comment
       accepting the cost of one wasted fetch per run for such a repo.
-- [ ] `saveState` once, after collection finishes — **including** when the context was cancelled, so a
+- [x] `saveState` once, after collection finishes — **including** when the context was cancelled, so a
       Ctrl-C run banks every repo that did complete. Return `130` on cancellation.
-- [ ] Print a summary line to `stdout`: `cloned=N fetched=N archived=N skipped=N failed=N`. Return `1`
+- [x] Print a summary line to `stdout`: `cloned=N fetched=N archived=N skipped=N failed=N`. Return `1`
       if `failed > 0`, else `0`.
-- [ ] Verify: `gofmt -l . && go vet ./... && go build ./... && go test -race ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go build ./... && go test -race ./...`
 
 ---
 

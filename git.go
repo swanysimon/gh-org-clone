@@ -95,41 +95,44 @@ func isDirty(ctx context.Context, cfg config, dir string) (bool, error) {
 
 // updateWorktree never runs a destructive git command. Any state other than
 // "clean and on the default branch and fast-forwardable" is left untouched
-// and reported as a warning instead of an error.
+// and reported as a warning instead of an error. The returned dirty flag
+// lets a caller decide not to record pushedAt for a dirty repo, so the
+// warning repeats every run instead of silently serving a stale tree
+// forever.
 //
 // AIDEV: a repo whose default branch was renamed upstream keeps its old
 // checkout until a human runs git switch; upgrade path is a rename-aware
 // branch switch.
-func updateWorktree(ctx context.Context, cfg config, dir, defaultBranch string) (string, error) {
+func updateWorktree(ctx context.Context, cfg config, dir, defaultBranch string) (warning string, dirty bool, err error) {
 	if defaultBranch == "" {
-		return "", nil
+		return "", false, nil
 	}
 
-	dirty, err := isDirty(ctx, cfg, dir)
+	dirty, err = isDirty(ctx, cfg, dir)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if dirty {
-		return "working tree has uncommitted changes, left untouched", nil
+		return "working tree has uncommitted changes, left untouched", true, nil
 	}
 
 	tctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	branchOut, err := runner(tctx, dir, "git", "symbolic-ref", "--quiet", "--short", "HEAD")
 	if err != nil {
-		return "HEAD is detached, left untouched", nil
+		return "HEAD is detached, left untouched", false, nil
 	}
 	branch := strings.TrimSpace(string(branchOut))
 	if branch != defaultBranch {
-		return fmt.Sprintf("on branch %q instead of default %q, left untouched", branch, defaultBranch), nil
+		return fmt.Sprintf("on branch %q instead of default %q, left untouched", branch, defaultBranch), false, nil
 	}
 
 	mctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	if _, err := runner(mctx, dir, "git", "merge", "--ff-only", "--quiet", "refs/remotes/origin/"+defaultBranch); err != nil {
-		return fmt.Sprintf("fast-forward merge failed: %v", err), nil
+		return fmt.Sprintf("fast-forward merge failed: %v", err), false, nil
 	}
-	return "", nil
+	return "", false, nil
 }
 
 // headInfo resolves the default branch's remote-tracking commit, falling

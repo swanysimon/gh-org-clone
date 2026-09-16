@@ -85,7 +85,7 @@ func TestCloneThenFetch(t *testing.T) {
 	if err := fetchRepo(ctx, cfg, dir); err != nil {
 		t.Fatalf("fetchRepo: %v", err)
 	}
-	if warn, err := updateWorktree(ctx, cfg, dir, "main"); err != nil || warn != "" {
+	if warn, _, err := updateWorktree(ctx, cfg, dir, "main"); err != nil || warn != "" {
 		t.Fatalf("updateWorktree: warn=%q err=%v", warn, err)
 	}
 
@@ -128,7 +128,7 @@ func TestUpdateWorktreeDirty(t *testing.T) {
 		t.Fatalf("fetchRepo: %v", err)
 	}
 
-	warn, err := updateWorktree(ctx, cfg, dir, "main")
+	warn, _, err := updateWorktree(ctx, cfg, dir, "main")
 	if err != nil {
 		t.Fatalf("updateWorktree: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestUpdateWorktreeDetached(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	warn, err := updateWorktree(ctx, cfg, dir, "main")
+	warn, _, err := updateWorktree(ctx, cfg, dir, "main")
 	if err != nil {
 		t.Fatalf("updateWorktree: %v", err)
 	}
