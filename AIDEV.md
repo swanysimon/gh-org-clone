@@ -280,8 +280,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 5 — Pure per-repo action planner
 
-- [ ] `jj new -m "feat: pure per-repo action planner"`
-- [ ] Create `plan.go` with the action enum:
+- [x] `jj new -m "feat: pure per-repo action planner"`
+- [x] Create `plan.go` with the action enum:
       ```go
       type action string
 
@@ -295,13 +295,13 @@ needs them. Do not go looking in other stages for context.
       	actionNotARepo      action = "not-a-repo"    // dir exists, no .git — report, touch nothing
       )
       ```
-- [ ] Add the planner to `plan.go`. It must be **pure**: no filesystem, no subprocess, no clock. All
+- [x] Add the planner to `plan.go`. It must be **pure**: no filesystem, no subprocess, no clock. All
       filesystem facts arrive as parameters so the whole decision matrix is table-testable.
       ```go
       func decide(repo ghRepo, prev repoState, known, dirExists, isGitDir, manifestExists bool, cfg config) (action, string)
       ```
       The returned string is a human-readable reason for `-v` output.
-- [ ] Implement `decide` with this precedence, top to bottom:
+- [x] Implement `decide` with this precedence, top to bottom:
       1. `dirExists && !isGitDir` → `actionNotARepo`.
       2. `repo.IsArchived && cfg.Archive`: `manifestExists && !dirExists` → `actionAdoptArchived`;
          otherwise → `actionArchive`.
@@ -312,13 +312,13 @@ needs them. Do not go looking in other stages for context.
       6. otherwise → `actionFetch`.
       Note that step 2 ignores `pushedAt` on purpose: an archived repo must be verified as actually
       archived on disk regardless of the cache.
-- [ ] Add an `AIDEV:` comment on the skip rule recording its ceiling: `pushedAt` does not move for every
+- [x] Add an `AIDEV:` comment on the skip rule recording its ceiling: `pushedAt` does not move for every
       conceivable upstream ref change, so `-force` is the escape hatch; the upgrade path is a periodic
       full `ls-remote` verification pass.
-- [ ] Note that `isGitDir` must be computed by the caller as a single `os.Stat` of `<dir>/.git`, **not**
+- [x] Note that `isGitDir` must be computed by the caller as a single `os.Stat` of `<dir>/.git`, **not**
       by shelling out to `git rev-parse`. This is what makes a fully up-to-date run spawn zero
       subprocesses per repo — one `gh` call for the entire org.
-- [ ] Create `plan_test.go` with `TestDecide`: a table walking the full matrix — `known` × `pushedAt`
+- [x] Create `plan_test.go` with `TestDecide`: a table walking the full matrix — `known` × `pushedAt`
       equal/changed × `dirExists` × `isGitDir` × `repo.IsArchived` × `prev.Status` × `cfg.Force` ×
       `cfg.Archive` × `manifestExists`. Assert the expected `action` for each row. This is the most
       important test in the suite; include at minimum these named rows: fresh unknown repo → clone;
@@ -327,7 +327,7 @@ needs them. Do not go looking in other stages for context.
       not-a-repo; newly archived upstream → archive; archived with manifest and no clone → adopt;
       archived upstream but `cfg.Archive == false` → fetch/clone as normal; previously archived, now
       live upstream → unarchive.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run TestDecide -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run TestDecide -v ./...`
 
 ---
 
