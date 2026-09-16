@@ -333,8 +333,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 6 — Clone, fetch and fast-forward git operations
 
-- [ ] `jj new -m "feat: clone, fetch and fast-forward git operations"`
-- [ ] Add `cloneRepo(ctx context.Context, cfg config, repo ghRepo) error` to `git.go`. Clone into a
+- [x] `jj new -m "feat: clone, fetch and fast-forward git operations"`
+- [x] Add `cloneRepo(ctx context.Context, cfg config, repo ghRepo) error` to `git.go`. Clone into a
       temp sibling and rename on success, so an interrupted clone can never be mistaken for a real one:
       ```
       git clone --quiet --no-single-branch --origin origin -- <url> <reposDir>/.tmp-<name>-<pid>
@@ -343,13 +343,13 @@ needs them. Do not go looking in other stages for context.
       temp directory. Do **not** add `--depth`, `--filter=blob:none`, `--single-branch`, `--bare` or
       `--mirror`: this tool exists to give coding agents a readable offline working tree, and every one
       of those flags either removes the files or makes git fetch on demand.
-- [ ] Add `fetchRepo(ctx context.Context, cfg config, dir string) error` running:
+- [x] Add `fetchRepo(ctx context.Context, cfg config, dir string) error` running:
       `git -C <dir> fetch --quiet --all --tags --prune --prune-tags`
       `--prune --prune-tags` is what makes the local copy a true mirror of upstream refs, so deleted
       branches and tags disappear locally too.
-- [ ] Add `isDirty(ctx context.Context, cfg config, dir string) (bool, error)` running
+- [x] Add `isDirty(ctx context.Context, cfg config, dir string) (bool, error)` running
       `git -C <dir> status --porcelain` and reporting dirty when the output is non-empty.
-- [ ] Add `updateWorktree(ctx context.Context, cfg config, dir, defaultBranch string) (string, error)`
+- [x] Add `updateWorktree(ctx context.Context, cfg config, dir, defaultBranch string) (string, error)`
       returning a warning string (empty when it fast-forwarded cleanly). It must **never** run `git
       reset --hard` or `git checkout -f`. Sequence: bail with a warning if `isDirty`; read the current
       branch with `git -C <dir> symbolic-ref --quiet --short HEAD` and bail with a warning if that fails
@@ -357,16 +357,16 @@ needs them. Do not go looking in other stages for context.
       `git -C <dir> merge --ff-only --quiet refs/remotes/origin/<defaultBranch>` and return its failure
       as a warning, not an error — a diverged local branch is the user's business, not a sync failure.
       Skip entirely when `defaultBranch == ""` (empty repo).
-- [ ] Add an `AIDEV:` comment on `updateWorktree` naming its ceiling: a repo whose default branch was
+- [x] Add an `AIDEV:` comment on `updateWorktree` naming its ceiling: a repo whose default branch was
       renamed upstream keeps its old checkout until a human runs `git switch`; the upgrade path is a
       rename-aware branch switch.
-- [ ] Add `headInfo(ctx context.Context, cfg config, dir, defaultBranch string) (sha string, committedAt
+- [x] Add `headInfo(ctx context.Context, cfg config, dir, defaultBranch string) (sha string, committedAt
       time.Time, subject string, err error)`. Resolve the commit with
       `git -C <dir> rev-parse --verify --quiet refs/remotes/origin/<defaultBranch>^{commit}`, falling
       back to `HEAD`; then
       `git -C <dir> log -1 --format=%H%x00%cI%x00%s <sha>`. Split on NUL, not tab or space — commit
       subjects routinely contain both. A repo with no commits must return zero values and **no** error.
-- [ ] Add `tags(ctx context.Context, cfg config, dir string) ([]archiveTag, error)` running
+- [x] Add `tags(ctx context.Context, cfg config, dir string) ([]archiveTag, error)` running
       `git -C <dir> for-each-ref --format=%(refname:short)%x00%(objectname)%x00%(creatordate:iso-strict) refs/tags`
       and parsing NUL-separated fields per line. Define the type in `git.go` for now:
       ```go
@@ -377,25 +377,25 @@ needs them. Do not go looking in other stages for context.
       }
       ```
       No tags must yield an empty slice and no error.
-- [ ] Add `setRemoteURL(ctx context.Context, cfg config, dir, url string) error` running
+- [x] Add `setRemoteURL(ctx context.Context, cfg config, dir, url string) error` running
       `git -C <dir> remote set-url origin -- <url>`, used by the rename fix-up in Stage 8.
-- [ ] Create `git_test.go` with a helper that builds a real git repo in `t.TempDir()`: `git init -b
+- [x] Create `git_test.go` with a helper that builds a real git repo in `t.TempDir()`: `git init -b
       main`, set `user.name`/`user.email` locally, write a file, commit. These tests use the **real**
       `git` binary over `file://` URLs and need no network and no `runner` override — reserve the seam
       for `gh`.
-- [ ] Add `TestCloneThenFetch`: build an origin repo, `cloneRepo` from its `file://` path, add a second
+- [x] Add `TestCloneThenFetch`: build an origin repo, `cloneRepo` from its `file://` path, add a second
       commit upstream, `fetchRepo`, `updateWorktree`, and assert the working-tree file now contains the
       new content. Also assert no `.tmp-*` directory remains in `reposDir`.
-- [ ] Add `TestUpdateWorktreeDirty`: clone, make an uncommitted edit, add an upstream commit, fetch, then
+- [x] Add `TestUpdateWorktreeDirty`: clone, make an uncommitted edit, add an upstream commit, fetch, then
       `updateWorktree` — assert it returns a non-empty warning, the uncommitted edit is still on disk
       byte-for-byte, and the working tree was not fast-forwarded.
-- [ ] Add `TestUpdateWorktreeDetached`: clone, `git checkout --detach`, then `updateWorktree` — assert a
+- [x] Add `TestUpdateWorktreeDetached`: clone, `git checkout --detach`, then `updateWorktree` — assert a
       warning and no error.
-- [ ] Add `TestHeadInfoAndTags`: a repo with a commit whose subject contains a tab character, one
+- [x] Add `TestHeadInfoAndTags`: a repo with a commit whose subject contains a tab character, one
       lightweight tag and one annotated tag. Assert the subject round-trips intact, both tags are
       returned with correct SHAs and parseable timestamps. Add a sub-case for a repo created with `git
       init` and no commits, asserting `headInfo` returns zero values and a nil error.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run 'TestClone|TestUpdateWorktree|TestHeadInfo' -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run 'TestClone|TestUpdateWorktree|TestHeadInfo' -v ./...`
 
 ---
 
