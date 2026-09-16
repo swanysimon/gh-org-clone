@@ -212,8 +212,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 4 — Persisted state with atomic writes
 
-- [ ] `jj new -m "feat: persisted state with atomic writes"`
-- [ ] Create `state.go` with these types and constants. Note there is deliberately **no** `lastError`
+- [x] `jj new -m "feat: persisted state with atomic writes"`
+- [x] Create `state.go` with these types and constants. Note there is deliberately **no** `lastError`
       field: the invariant is that `PushedAt` is written only after a fully successful sync, so a failed
       repo is automatically eligible again on the next run. Record that invariant as an `AIDEV:` comment
       on `repoState`.
@@ -242,36 +242,39 @@ needs them. Do not go looking in other stages for context.
       	ArchivePath string     `json:"archivePath,omitempty"` // relative to <root>/<org>
       }
       ```
-- [ ] Add path helpers to `state.go`, all derived from `cfg`: `orgDir` = `<Root>/<Org>`, `reposDir` =
+- [x] Add path helpers to `state.go`, all derived from `cfg`: `orgDir` = `<Root>/<Org>`, `reposDir` =
       `<orgDir>/repos`, `archivesDir` = `<orgDir>/archives`, `statePath` = `<orgDir>/state.json`,
       `lockPath` = `<orgDir>/lock`. The `repos/` and `archives/` subdirectories are required, not
       cosmetic: `archives` and `state.json` are themselves legal GitHub repo names and would collide if
       clones lived directly under `<orgDir>`.
-- [ ] Add `loadState(path, org string, stderr io.Writer) state`. It returns a usable state and never an
+- [x] Add `loadState(path, org string, stderr io.Writer) state`. It returns a usable state and never an
       error: a missing file yields an empty state; a file that fails to parse, or whose `Version !=
       stateVersion`, prints a warning to `stderr` and yields an empty state. Losing the cache costs one
       full re-verify pass and destroys nothing, so failing the run here would be strictly worse. Always
       return a non-nil `Repos` map.
-- [ ] Add `saveState(path string, s state) error` writing atomically: marshal to memory with
+- [x] Add `saveState(path string, s state) error` writing atomically: marshal to memory with
       `json.MarshalIndent`, `os.CreateTemp(filepath.Dir(path), "state-*.json")`, `Write`, `Sync`,
       `Close`, `os.Rename` onto `path`, then open the parent directory and `Sync` that handle so the
       rename itself is durable. `defer os.Remove(tmp)` on every error path so a failure leaves no
       litter. Rename within one directory is atomic, so a concurrent reader sees either the whole old
       file or the whole new one, never a truncated one.
-- [ ] Add `validRepoName(name string) bool` to `state.go`. This is a **trust boundary** — the name comes
+- [x] Add `validRepoName(name string) bool` to `state.go`. This is a **trust boundary** — the name comes
       from the GitHub API and becomes a path segment and a `git` argument. Return true only for names
-      matching `^[A-Za-z0-9][A-Za-z0-9._-]*$` that are additionally not `.` and not `..`. The anchored
-      first character is what blocks a leading `-` being read by `git` as a flag.
-- [ ] Create `state_test.go` with `TestStateRoundTrip`: save a state with two repos, load it, assert
+      matching `^[A-Za-z0-9.][A-Za-z0-9._-]*$` that are additionally not `.` and not `..`. **Corrected
+      from the original `^[A-Za-z0-9]...` pattern**, which rejected GitHub's own `.github` repo
+      convention — caught by `TestValidRepoName`'s `.github` case. The first-character class still
+      excludes `-`, which is what blocks a leading `-` being read by `git` as a flag; `.`/`..` need the
+      separate explicit check since they now match the character class.
+- [x] Create `state_test.go` with `TestStateRoundTrip`: save a state with two repos, load it, assert
       field-for-field equality including timestamps, assert timestamps serialise as RFC3339, and assert
       no `state-*.json` temp file remains in the directory afterwards.
-- [ ] Add `TestLoadStateCorrupt`: a table over (a) missing file, (b) `not json at all`, (c) valid JSON
+- [x] Add `TestLoadStateCorrupt`: a table over (a) missing file, (b) `not json at all`, (c) valid JSON
       with `"version": 99`, (d) valid JSON with `"repos": null`. Each must yield an empty, usable state
       with a non-nil map, no panic, and — for (b) and (c) — a warning written to the provided writer.
-- [ ] Add `TestValidRepoName`: a table covering accepted (`repo`, `.github`, `foo.bar`, `a-b`, `x_y`,
+- [x] Add `TestValidRepoName`: a table covering accepted (`repo`, `.github`, `foo.bar`, `a-b`, `x_y`,
       `a1`) and rejected (`""`, `.`, `..`, `a/b`, `-x`, `--upload-pack=x`, `.hidden-ok?` decide per the
       regex, `é`, `a b`) inputs.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run 'TestState|TestLoadState|TestValidRepoName' -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run 'TestState|TestLoadState|TestValidRepoName' -v ./...`
 
 ---
 
