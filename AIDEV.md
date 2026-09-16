@@ -71,8 +71,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 2 — Config resolution
 
-- [ ] `jj new -m "feat: config resolution from flags, env, file, defaults"`
-- [ ] Add the `config` struct to `main.go`. This is the resolved, validated config — all value types, no
+- [x] `jj new -m "feat: config resolution from flags, env, file, defaults"`
+- [x] Add the `config` struct to `main.go`. This is the resolved, validated config — all value types, no
       pointers.
       ```go
       type config struct {
@@ -89,7 +89,7 @@ needs them. Do not go looking in other stages for context.
       	Verbose      bool
       }
       ```
-- [ ] Add the `fileConfig` struct to `main.go`. Every field is a pointer so that `nil` means "not set in
+- [x] Add the `fileConfig` struct to `main.go`. Every field is a pointer so that `nil` means "not set in
       the file" and an explicit `false`/`0` in the file is distinguishable from absence.
       ```go
       type fileConfig struct {
@@ -102,14 +102,14 @@ needs them. Do not go looking in other stages for context.
       	Archive      *bool   `json:"archive"`
       }
       ```
-- [ ] Add `defaultRoot() string`: return `$XDG_DATA_HOME/gh-org-clone` if `XDG_DATA_HOME` is set and
+- [x] Add `defaultRoot() string`: return `$XDG_DATA_HOME/gh-org-clone` if `XDG_DATA_HOME` is set and
       absolute, else `filepath.Join(os.UserHomeDir(), ".local", "share", "gh-org-clone")`.
-- [ ] Add `defaultConfig() config` returning: `Root: defaultRoot()`, `Concurrency: 8`, `Timeout: 30 *
+- [x] Add `defaultConfig() config` returning: `Root: defaultRoot()`, `Concurrency: 8`, `Timeout: 30 *
       time.Minute`, `MaxRepos: 10000`, `Protocol: "ssh"`, `IncludeForks: false`, `Archive: true`. These
       are the only place defaults are written — do **not** also pass defaults into the `flag` calls
       (pass zero values there), because the next item relies on flag values being meaningless unless
       visited.
-- [ ] Add `resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, error)` applying
+- [x] Add `resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, error)` applying
       precedence **flags > env > file > defaults**:
       1. Register flags: `-root`, `-concurrency`, `-timeout` (string), `-max-repos`, `-protocol`,
          `-include-forks`, `-archive`, `-force`, `-dry-run`, `-v`, `-config`. Parse `args`.
@@ -126,20 +126,20 @@ needs them. Do not go looking in other stages for context.
       5. Overlay flags using `fs.Visit(func(f *flag.Flag) {...})`, which reports **only** the flags the
          user actually typed. This is the mechanism that keeps defaults in exactly one place.
       6. Set `Org` from `fs.Arg(0)`.
-- [ ] Add validation at the end of `resolveConfig`, returning an error for any of: empty `Org`, `Org` not
+- [x] Add validation at the end of `resolveConfig`, returning an error for any of: empty `Org`, `Org` not
       matching `^[A-Za-z0-9][A-Za-z0-9-]*$`, `Concurrency < 1`, `MaxRepos < 1`, `Timeout <= 0`,
       `Protocol` not in `{"ssh", "https"}`, `Root` not absolute. `Force`, `DryRun` and `Verbose` are
       flag-only by design and must not be readable from env or file.
-- [ ] Wire `run` to call `resolveConfig` and `return 2` on error, printing the error to `stderr`.
-- [ ] Create `main_test.go` with `TestConfigDefaults` (empty env + no file → `defaultConfig()` values
+- [x] Wire `run` to call `resolveConfig` and `return 2` on error, printing the error to `stderr`.
+- [x] Create `main_test.go` with `TestConfigDefaults` (empty env + no file → `defaultConfig()` values
       plus `Org`) and `TestConfigPrecedence`: using `t.Setenv` and a config file written into
       `t.TempDir()`, assert that (a) file beats default, (b) env beats file, (c) an explicit flag beats
       env, and (d) a flag that is *not* passed does not clobber the file's value. Item (d) is the
       regression that `fs.Visit` exists to prevent.
-- [ ] Add `TestConfigRejects` — a table asserting an error for: no positional arg, two positional args,
+- [x] Add `TestConfigRejects` — a table asserting an error for: no positional arg, two positional args,
       `-concurrency 0`, `-protocol ftp`, `-timeout banana`, `-max-repos -1`, a malformed JSON config
       file, and a config file with an unknown key.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run TestConfig -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run TestConfig -v ./...`
 
 ---
 
