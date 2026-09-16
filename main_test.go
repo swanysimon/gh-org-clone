@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newFlagSet() *flag.FlagSet {
@@ -139,5 +145,202 @@ func clearConfigEnv(t *testing.T) {
 	} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
+	}
+}
+
+func TestRunEndToEnd(t *testing.T) {
+	ctx := context.Background()
+
+	normalOrigin := initTestRepo(t)
+	if err := os.WriteFile(filepath.Join(normalOrigin, "file.txt"), []byte("v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execCommand(ctx, normalOrigin, "git", "add", "file.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execCommand(ctx, normalOrigin, "git", "commit", "--quiet", "-m", "second"); err != nil {
+		t.Fatal(err)
+	}
+
+	archivedOrigin := initTestRepo(t)
+
+	emptyOrigin := t.TempDir()
+	if _, err := execCommand(ctx, emptyOrigin, "git", "init", "--quiet", "-b", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	pushedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	repos := []ghRepo{
+		{ID: "R_normal", Name: "normal", NameWithOwner: "testorg/normal", URL: "file://" + normalOrigin, SSHURL: "file://" + normalOrigin, DefaultBranch: &ghRefName{Name: "main"}, PushedAt: pushedAt},
+		{ID: "R_archived", Name: "archived", NameWithOwner: "testorg/archived", URL: "file://" + archivedOrigin, SSHURL: "file://" + archivedOrigin, IsArchived: true, DefaultBranch: &ghRefName{Name: "main"}, PushedAt: pushedAt, ArchivedAt: pushedAt},
+		{ID: "R_empty", Name: "empty", NameWithOwner: "testorg/empty", URL: "file://" + emptyOrigin, SSHURL: "file://" + emptyOrigin, IsEmpty: true},
+	}
+	reposJSON, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := runner
+	t.Cleanup(func() { runner = old })
+
+	var ghCalls, gitCalls atomic.Int64
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			ghCalls.Add(1)
+			return reposJSON, nil
+		}
+		gitCalls.Add(1)
+		return old(ctx, dir, name, args...)
+	}
+
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(ctx, []string{"-root", root, "-protocol", "https", "testorg"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("run() = %d, stderr=%s", code, stderr.String())
+	}
+
+	normalDir := filepath.Join(root, "testorg", "repos", "normal")
+	got, err := os.ReadFile(filepath.Join(normalDir, "file.txt"))
+	if err != nil {
+		t.Fatalf("normal repo missing: %v", err)
+	}
+	if string(got) != "v2\n" {
+		t.Fatalf("normal repo file = %q, want %q", got, "v2\n")
+	}
+
+	archivedDir := filepath.Join(root, "testorg", "repos", "archived")
+	if _, err := os.Stat(archivedDir); !os.IsNotExist(err) {
+		t.Fatalf("archived repo clone should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "testorg", "archives", "archived.tar.gz")); err != nil {
+		t.Fatalf("tarball missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "testorg", "archives", "archived.json")); err != nil {
+		t.Fatalf("manifest missing: %v", err)
+	}
+
+	emptyDir := filepath.Join(root, "testorg", "repos", "empty")
+	if _, err := os.Stat(emptyDir); err != nil {
+		t.Fatalf("empty repo missing: %v", err)
+	}
+
+	stateRaw, err := os.ReadFile(filepath.Join(root, "testorg", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st state
+	if err := json.Unmarshal(stateRaw, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Version != stateVersion {
+		t.Fatalf("state version = %d, want %d", st.Version, stateVersion)
+	}
+	if st.Repos["normal"].Status != statusCloned {
+		t.Fatalf("normal status = %q, want %q", st.Repos["normal"].Status, statusCloned)
+	}
+	if st.Repos["archived"].Status != statusArchived {
+		t.Fatalf("archived status = %q, want %q", st.Repos["archived"].Status, statusArchived)
+	}
+	if st.Repos["empty"].Status != statusCloned {
+		t.Fatalf("empty status = %q, want %q", st.Repos["empty"].Status, statusCloned)
+	}
+
+	summary := stdout.String()
+	if !strings.Contains(summary, "cloned=2") || !strings.Contains(summary, "archived=1") {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+
+	// Incremental assertion: a second run must issue exactly one gh call
+	// and zero git calls, with every live repo reported skipped.
+	ghCalls.Store(0)
+	gitCalls.Store(0)
+	var stdout2, stderr2 bytes.Buffer
+	code2 := run(ctx, []string{"-root", root, "-protocol", "https", "testorg"}, &stdout2, &stderr2)
+	if code2 != exitSuccess {
+		t.Fatalf("second run() = %d, stderr=%s", code2, stderr2.String())
+	}
+	if got := ghCalls.Load(); got != 1 {
+		t.Fatalf("second run made %d gh calls, want 1", got)
+	}
+	if got := gitCalls.Load(); got != 0 {
+		t.Fatalf("second run made %d git calls, want 0", got)
+	}
+	summary2 := stdout2.String()
+	if !strings.Contains(summary2, "skipped=2") || !strings.Contains(summary2, "archived=1") {
+		t.Fatalf("unexpected second-run summary: %q", summary2)
+	}
+}
+
+func TestRunNoGh(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-root", t.TempDir(), "testorg"}, &stdout, &stderr)
+	if code != exitRuntimeFail {
+		t.Fatalf("run() = %d, want %d; stderr=%s", code, exitRuntimeFail, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "gh") {
+		t.Fatalf("stderr does not mention gh: %s", stderr.String())
+	}
+}
+
+func TestRunLockHeld(t *testing.T) {
+	root := t.TempDir()
+	cfg := config{Root: root, Org: "testorg"}
+	if err := os.MkdirAll(orgDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath(cfg), []byte("999 sometime\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-root", root, "testorg"}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("run() succeeded despite a held lock")
+	}
+	if !strings.Contains(stderr.String(), lockPath(cfg)) {
+		t.Fatalf("stderr does not name the lock file: %s", stderr.String())
+	}
+	entries, err := os.ReadDir(reposDir(cfg))
+	if err == nil && len(entries) != 0 {
+		t.Fatalf("repos dir should be untouched, got %v", entries)
+	}
+}
+
+func TestRunDryRun(t *testing.T) {
+	origin := initTestRepo(t)
+	repos := []ghRepo{
+		{ID: "R1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, SSHURL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}, PushedAt: time.Now()},
+	}
+	reposJSON, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return reposJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-root", root, "-protocol", "https", "-dry-run", "testorg"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("run() = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "repo1") {
+		t.Fatalf("dry-run output missing repo1: %s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "testorg", "repos", "repo1")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create a clone, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "testorg", "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create state.json, stat err = %v", err)
 	}
 }

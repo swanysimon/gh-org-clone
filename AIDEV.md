@@ -555,31 +555,31 @@ in that order, each sub-step still compiling.
 
 ## Stage 9 — Offline end-to-end test
 
-- [ ] `jj new -m "test: offline end-to-end run over local repos"`
-- [ ] Add `TestRunEndToEnd` to `main_test.go`. Build three real git repos in `t.TempDir()`: one normal
+- [x] `jj new -m "test: offline end-to-end run over local repos"`
+- [x] Add `TestRunEndToEnd` to `main_test.go`. Build three real git repos in `t.TempDir()`: one normal
       with two commits, one to be reported archived, one created with `git init` and no commits.
       Override `runner` so that **only** `gh` calls are intercepted — return canned JSON whose `sshUrl`
       and `url` are `file://` paths to those repos, with `isArchived: true` on the second and
       `"pushedAt": null, "defaultBranchRef": null` on the third. Let every `git` call through to the
       real binary. Restore `runner` with `t.Cleanup`.
-- [ ] Call `run(ctx, []string{"-root", tmpRoot, "-protocol", "https", "testorg"}, &stdout, &stderr)` and
+- [x] Call `run(ctx, []string{"-root", tmpRoot, "-protocol", "https", "testorg"}, &stdout, &stderr)` and
       assert: exit code `0`; `<root>/testorg/repos/<normal>` exists with the expected file content;
       `<root>/testorg/repos/<archived>` does **not** exist; `<root>/testorg/archives/<archived>.tar.gz`
       and `.json` both exist; the empty repo is present and caused no error; `state.json` parses with
       `Version == stateVersion` and the right per-repo `Status` values; and the summary line on stdout
       reports the expected counts.
-- [ ] Add the incremental assertion — this is the test for the core requirement that repeat runs do as
+- [x] Add the incremental assertion — this is the test for the core requirement that repeat runs do as
       little work as possible. Wrap `runner` in a counter that records the invoked binary. Run `run` a
       second time with identical arguments and assert **zero** `git` invocations occurred and exactly
       one `gh` invocation, and that the summary reports every live repo as skipped. The already-archived
       repo must be adopted from its manifest without invoking git.
-- [ ] Add `TestRunNoGh`: point `PATH` at an empty directory via `t.Setenv` so `exec.LookPath("gh")`
+- [x] Add `TestRunNoGh`: point `PATH` at an empty directory via `t.Setenv` so `exec.LookPath("gh")`
       fails, and assert exit code `1` with an error message naming `gh`.
-- [ ] Add `TestRunLockHeld`: pre-create `<root>/testorg/lock`, then assert `run` exits non-zero with an
+- [x] Add `TestRunLockHeld`: pre-create `<root>/testorg/lock`, then assert `run` exits non-zero with an
       error naming the lock file path, and that it did not modify anything under `repos/`.
-- [ ] Add `TestRunDryRun`: assert `-dry-run` prints a planned action per repo, exits `0`, and creates no
+- [x] Add `TestRunDryRun`: assert `-dry-run` prints a planned action per repo, exits `0`, and creates no
       clone directory and no `state.json`.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -race -run TestRun -v ./... && go test -race ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -race -run TestRun -v ./... && go test -race ./...`
 
 ---
 
