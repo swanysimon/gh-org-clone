@@ -42,14 +42,14 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 1 — Go module and CLI skeleton
 
-- [ ] `jj new -m "chore: go module and CLI skeleton"`
-- [ ] Create `go.mod` with `go mod init github.com/swanysimon/gh-org-clone`, then set the `go` directive
+- [x] `jj new -m "chore: go module and CLI skeleton"`
+- [x] Create `go.mod` with `go mod init github.com/swanysimon/gh-org-clone`, then set the `go` directive
       to the installed toolchain's major.minor (`go version`). Confirm with the user if a different
       module path is wanted; `swanysimon` comes from the authenticated `gh` account. `go.mod` must
       contain no `require` block.
-- [ ] Create `.gitignore` containing exactly two lines: `/gh-org-clone` (the built binary) and
+- [x] Create `.gitignore` containing exactly two lines: `/gh-org-clone` (the built binary) and
       `/coverage.out`.
-- [ ] Create `main.go` with `package main` and this shape. `run` takes its writers and args as
+- [x] Create `main.go` with `package main` and this shape. `run` takes its writers and args as
       parameters — that is what makes Stage 9's end-to-end test possible, so do not read `os.Args` or
       write to `os.Stdout` anywhere except `main`.
       ```go
@@ -59,13 +59,13 @@ needs them. Do not go looking in other stages for context.
 
       func run(ctx context.Context, args []string, stdout, stderr io.Writer) int
       ```
-- [ ] In `run`, parse args with a `*flag.FlagSet` created via `flag.NewFlagSet("gh-org-clone",
+- [x] In `run`, parse args with a `*flag.FlagSet` created via `flag.NewFlagSet("gh-org-clone",
       flag.ContinueOnError)` and `fs.SetOutput(stderr)`. Usage line: `gh-org-clone [flags] <org>`.
       Require exactly one positional argument. On a parse error or wrong argument count, print usage to
       `stderr` and `return 2`. On success `return 0` for now.
-- [ ] Define the exit-code contract in a `const` block and use it everywhere from here on: `0` success,
+- [x] Define the exit-code contract in a `const` block and use it everywhere from here on: `0` success,
       `1` runtime failure (one or more repos failed), `2` usage or config error, `130` interrupted.
-- [ ] Verify: `gofmt -l . && go vet ./... && go build ./... && ./gh-org-clone; test $? -eq 2 && ./gh-org-clone a b; test $? -eq 2`
+- [x] Verify: `gofmt -l . && go vet ./... && go build ./... && ./gh-org-clone; test $? -eq 2 && ./gh-org-clone a b; test $? -eq 2`
 
 ---
 
