@@ -145,8 +145,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 3 — List org repos via `gh`
 
-- [ ] `jj new -m "feat: list org repos via gh"`
-- [ ] Create `git.go` containing **only** the command seam for now. One package-level function variable
+- [x] `jj new -m "feat: list org repos via gh"`
+- [x] Create `git.go` containing **only** the command seam for now. One package-level function variable
       is the entire test seam for the project — do not introduce an interface, a struct, or dependency
       injection.
       ```go
@@ -159,7 +159,7 @@ needs them. Do not go looking in other stages for context.
       buffer and stderr into a separate buffer, and on a non-zero exit returns an error that includes
       the full command line **and** the captured stderr. Inheriting the rest of the environment is
       required so `gh` can find `GH_TOKEN`/`GH_HOST`/the keychain.
-- [ ] Create `gh.go` with the listing types. `defaultBranchRef` is a pointer because it is `null` for
+- [x] Create `gh.go` with the listing types. `defaultBranchRef` is a pointer because it is `null` for
       repos with no commits — that is the reliable empty-repo signal. `pushedAt` and `archivedAt` are
       also `null` in real payloads; `json.Unmarshal` leaves the zero `time.Time` in place for `null`, so
       no custom unmarshaller is needed.
@@ -184,29 +184,29 @@ needs them. Do not go looking in other stages for context.
       	Name string `json:"name"`
       }
       ```
-- [ ] Add `ghJSONFields` as a package-level `const` string with exactly this value:
+- [x] Add `ghJSONFields` as a package-level `const` string with exactly this value:
       `id,name,nameWithOwner,url,sshUrl,isArchived,archivedAt,isEmpty,isFork,isPrivate,visibility,pushedAt,defaultBranchRef`
-- [ ] Add `listRepos(ctx context.Context, cfg config) ([]ghRepo, error)` invoking, through `runner`:
+- [x] Add `listRepos(ctx context.Context, cfg config) ([]ghRepo, error)` invoking, through `runner`:
       `gh repo list <org> --limit <MaxRepos> --json <ghJSONFields>`
       Notes that must be respected: `--limit` is mandatory because **gh defaults to 30** and would
       silently truncate the org. Do **not** pass `--no-archived` (archived repos are the whole point of
       this tool) and do **not** pass `--source` to filter forks — forks are filtered client-side later so
       that `-v` can report why a repo was skipped.
-- [ ] Add a `cloneURL(repo ghRepo, cfg config) string` helper returning `repo.SSHURL` when
+- [x] Add a `cloneURL(repo ghRepo, cfg config) string` helper returning `repo.SSHURL` when
       `cfg.Protocol == "ssh"` and `repo.URL` otherwise, and returning an error-free empty string never —
       if the chosen URL is empty, callers must treat it as a repo-level failure.
-- [ ] Create `gh_test.go` with `TestParseRepoList`: unmarshal a canned payload that includes a normal
+- [x] Create `gh_test.go` with `TestParseRepoList`: unmarshal a canned payload that includes a normal
       repo, an archived repo with a non-null `archivedAt`, a fork, a private repo, and an empty repo with
       `"pushedAt": null, "archivedAt": null, "defaultBranchRef": null`. Assert the empty repo decodes
       with a zero `PushedAt` and a `nil` `DefaultBranch` and no error.
-- [ ] Add `TestListReposArgs`: override `runner` (restoring it with `t.Cleanup`) to capture argv, call
+- [x] Add `TestListReposArgs`: override `runner` (restoring it with `t.Cleanup`) to capture argv, call
       `listRepos`, and assert the argv is exactly `gh repo list <org> --limit <n> --json <fields>` with
       the full field list. This test exists specifically to catch a future edit that drops `--limit` and
       silently truncates large orgs.
-- [ ] Add `TestListReposError`: `runner` returns a non-zero exit with stderr `HTTP 401: Requires
+- [x] Add `TestListReposError`: `runner` returns a non-zero exit with stderr `HTTP 401: Requires
       authentication`; assert `listRepos` returns an error whose message contains that text. Surfacing
       gh's own stderr verbatim is the auth-failure UX — do not add a separate `gh auth status` preflight.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run 'TestParseRepoList|TestListRepos' -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run 'TestParseRepoList|TestListRepos' -v ./...`
 
 ---
 
