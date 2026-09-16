@@ -401,8 +401,8 @@ needs them. Do not go looking in other stages for context.
 
 ## Stage 7 — Tarball archives with sidecar manifests
 
-- [ ] `jj new -m "feat: tarball archives with sidecar manifests"`
-- [ ] Create `archive.go` with the manifest type. Recording sha, timestamps **and** tags together is the
+- [x] `jj new -m "feat: tarball archives with sidecar manifests"`
+- [x] Create `archive.go` with the manifest type. Recording sha, timestamps **and** tags together is the
       answer to the open question in `CLAUDE.md` ("commit hash? Tags? Updated timestamp?") — all three
       cost one `git log` plus one `git for-each-ref`, so record all three.
       ```go
@@ -427,7 +427,7 @@ needs them. Do not go looking in other stages for context.
       	TarballSHA256   string       `json:"tarballSha256"`
       }
       ```
-- [ ] Add `writeTarball(dir, repoName, dest string) (bytes int64, sha256hex string, err error)` to
+- [x] Add `writeTarball(dir, repoName, dest string) (bytes int64, sha256hex string, err error)` to
       `archive.go`. Write to `<dest>.tmp-<pid>` first. Chain `os.Create` → `sha256.New()` →
       `io.MultiWriter(file, hash)` → `gzip.NewWriter` → `tar.NewWriter`, so the checksum costs nothing
       extra. Walk with `filepath.WalkDir` using `os.Lstat` (never `os.Stat`) so symlinks are stored as
@@ -436,7 +436,7 @@ needs them. Do not go looking in other stages for context.
       Header names are the path relative to `dir`, prefixed with `<repoName>/`, so extraction produces
       one directory instead of spraying files into the cwd. Close tar → close gzip → `file.Sync()` →
       `file.Close()` → `os.Rename` to `dest`. On any error, `os.Remove` the temp file and return.
-- [ ] Add `archiveRepo(ctx context.Context, cfg config, repo ghRepo) (repoState, []string, error)`
+- [x] Add `archiveRepo(ctx context.Context, cfg config, repo ghRepo) (repoState, []string, error)`
       implementing this exact order. The ordering is the safety property: the clone is removed only
       after both files are durably on disk.
       1. If `<reposDir>/<name>` does not exist and `<archivesDir>/<name>.json` parses and its
@@ -461,19 +461,19 @@ needs them. Do not go looking in other stages for context.
       10. `os.RemoveAll(<reposDir>/<name>)`.
       11. Return `repoState{ID: repo.ID, PushedAt: repo.PushedAt, SyncedAt: now, Status:
           statusArchived, ArchivePath: "archives/<name>.tar.gz"}`.
-- [ ] Create `archive_test.go` with `TestArchiveRepo`: build a real repo containing a nested directory, a
+- [x] Create `archive_test.go` with `TestArchiveRepo`: build a real repo containing a nested directory, a
       symlink and a file with mode `0o755`; run `archiveRepo`; then re-open the tarball with
       `archive/tar` and assert every entry name is prefixed `<repo>/`, the symlink is a
       `tar.TypeSymlink` entry (not its target's contents), the executable bit survived, and `.git`
       entries are present. Recompute sha256 over the file and assert it matches the manifest, assert
       `TarballBytes` matches the real size, and assert `<reposDir>/<name>` is gone.
-- [ ] Add `TestArchiveRefusesDirty`: a clone with an uncommitted edit → `archiveRepo` returns an error,
+- [x] Add `TestArchiveRefusesDirty`: a clone with an uncommitted edit → `archiveRepo` returns an error,
       no `.tar.gz` and no `.json` exist, and the clone directory is still present with the edit intact.
-- [ ] Add `TestArchiveResume`: pre-write a matching manifest and tarball, record the tarball's mtime,
+- [x] Add `TestArchiveResume`: pre-write a matching manifest and tarball, record the tarball's mtime,
       run `archiveRepo`, and assert the mtime is unchanged (no re-tar) while the clone is still deleted.
-- [ ] Add `TestArchiveAdoptsExisting`: manifest and tarball present with no clone → returns
+- [x] Add `TestArchiveAdoptsExisting`: manifest and tarball present with no clone → returns
       `statusArchived` without invoking git at all.
-- [ ] Verify: `gofmt -l . && go vet ./... && go test -run TestArchive -v ./...`
+- [x] Verify: `gofmt -l . && go vet ./... && go test -run TestArchive -v ./...`
 
 ---
 
