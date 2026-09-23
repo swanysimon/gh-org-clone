@@ -622,18 +622,37 @@ in that order, each sub-step still compiling.
 
 ---
 
+## Post-completion changes
+
+Changes made after all 10 stages above were checked off. Kept separate from the stage tables so the
+staged build record above stays an accurate account of what was true at the time, rather than being
+rewritten after the fact.
+
+- **Flags realigned to `gh`'s own CLI conventions (2026-09-23).** `gh` (via cobra/pflag) always shows
+  long flags as `--name` and reserves single-dash for one-letter shorthands (see `gh repo list --help`).
+  Go's stdlib `flag` package already parses `-name` and `--name` identically — that part needed no
+  change. What changed: `-v` gained a `--verbose` alias (two `fs.BoolVar` calls bound to the same
+  variable — the standard stdlib idiom, no new dependency), and `fs.Usage` was replaced with a custom
+  `printUsage` in `main.go` that renders flags in `gh`'s `-x, --name` / `      --name` column format with
+  real resolved defaults shown the way `gh --help` shows `(default 30)`. `README.md`'s flag table and
+  examples were updated to `--name` accordingly. Every stage above still documents flags with their
+  original single-dash spelling — that reflects what was written at the time and still parses
+  identically; treat `README.md`'s table as the current source of truth for flag spelling.
+- Regression coverage: `TestConfigVerboseAliases` in `main_test.go` asserts `-v` and `--verbose` both
+  set `Verbose`.
+
 ## Deferred — consciously out of scope
 
 Do not implement these without being asked. They are listed so a future reader knows they were decided,
 not overlooked.
 
 - **Pruning repos deleted upstream.** Absence from the listing is indistinguishable from lost access, so
-  the tool reports and never deletes. A `-prune` flag is the upgrade path.
+  the tool reports and never deletes. A `--prune` flag is the upgrade path.
 - **Submodules.** Not initialized; no `--recurse-submodules`. Each submodule may be private, external or
   cyclic, and is a repo in its own right.
 - **Shallow, partial or bare clones.** Rejected: they defeat offline reference for coding agents.
 - **zstd tarballs.** `compress/gzip` is stdlib; zstd would be the project's first dependency.
 - **A size cap or disk quota.** Documented in the README instead.
-- **Periodic full re-verification** beyond `-force`, and per-repo retry/backoff bookkeeping — the
+- **Periodic full re-verification** beyond `--force`, and per-repo retry/backoff bookkeeping — the
   "`pushedAt` is written only on success" invariant covers retries.
 - **Issues, PRs, wikis, releases and other non-git org data.** This tool mirrors git repositories.

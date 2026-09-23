@@ -28,19 +28,23 @@ Requires `gh` (authenticated) and `git` on `PATH`.
 
 Precedence is **flags > environment > config file > defaults**.
 
+Flags follow `gh`'s own convention: every long flag takes `--name` (Go's flag parser also accepts a
+single dash, e.g. `-root`, but `--root` is how it's documented and how `gh --help` shows its own
+flags); `-v`/`--verbose` is the one flag with a one-letter shorthand, again matching `gh`.
+
 | Flag | Env var | Config key | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `-root` | `GH_ORG_CLONE_ROOT` | `root` | see below | root directory for all cloned orgs |
-| `-concurrency` | `GH_ORG_CLONE_CONCURRENCY` | `concurrency` | `8` | repos synced in parallel |
-| `-timeout` | `GH_ORG_CLONE_TIMEOUT` | `timeout` | `30m` | per-subprocess timeout |
-| `-max-repos` | `GH_ORG_CLONE_MAX_REPOS` | `maxRepos` | `10000` | `gh repo list --limit`; gh itself defaults to 30 |
-| `-protocol` | `GH_ORG_CLONE_PROTOCOL` | `protocol` | `ssh` | `ssh` or `https` clone URLs |
-| `-include-forks` | `GH_ORG_CLONE_INCLUDE_FORKS` | `includeForks` | `false` | include forked repos |
-| `-archive` | `GH_ORG_CLONE_ARCHIVE` | `archive` | `true` | tarball archived repos and remove their clones |
-| `-force` | — | — | `false` | ignore stored `pushedAt`, re-sync every repo |
-| `-dry-run` | — | — | `false` | print planned actions, do nothing |
-| `-v` | — | — | `false` | verbose output (e.g. reports skipped forks) |
-| `-config` | `GH_ORG_CLONE_CONFIG` | — | see below | path to the JSON config file |
+| `--root` | `GH_ORG_CLONE_ROOT` | `root` | see below | root directory for all cloned orgs |
+| `--concurrency` | `GH_ORG_CLONE_CONCURRENCY` | `concurrency` | `8` | repos synced in parallel |
+| `--timeout` | `GH_ORG_CLONE_TIMEOUT` | `timeout` | `30m` | per-subprocess timeout |
+| `--max-repos` | `GH_ORG_CLONE_MAX_REPOS` | `maxRepos` | `10000` | `gh repo list --limit`; gh itself defaults to 30 |
+| `--protocol` | `GH_ORG_CLONE_PROTOCOL` | `protocol` | `ssh` | `ssh` or `https` clone URLs |
+| `--include-forks` | `GH_ORG_CLONE_INCLUDE_FORKS` | `includeForks` | `false` | include forked repos |
+| `--archive` | `GH_ORG_CLONE_ARCHIVE` | `archive` | `true` | tarball archived repos and remove their clones |
+| `--force` | — | — | `false` | ignore stored `pushedAt`, re-sync every repo |
+| `--dry-run` | — | — | `false` | print planned actions, do nothing |
+| `-v`, `--verbose` | — | — | `false` | verbose output (e.g. reports skipped forks) |
+| `--config` | `GH_ORG_CLONE_CONFIG` | — | see below | path to the JSON config file |
 
 The config file is JSON, e.g.:
 
@@ -52,7 +56,7 @@ The config file is JSON, e.g.:
 }
 ```
 
-Its search path (first match wins): `-config` flag, `$GH_ORG_CLONE_CONFIG`,
+Its search path (first match wins): `--config` flag, `$GH_ORG_CLONE_CONFIG`,
 `$XDG_CONFIG_HOME/gh-org-clone/config.json`, else `~/.config/gh-org-clone/config.json`. An unknown key
 or a value that fails to parse is a hard error — it is never silently ignored.
 
@@ -67,7 +71,7 @@ or a value that fails to parse is a hard error — it is never silently ignored.
 
 `<root>` defaults to `$XDG_DATA_HOME/gh-org-clone`, falling back to `~/.local/share/gh-org-clone`. This
 is **not** where most Mac users look for things, and Spotlight and Time Machine will index and back up
-everything under it — pass `-root` explicitly if that matters to you.
+everything under it — pass `--root` explicitly if that matters to you.
 
 ## Things worth knowing before you run this on a big org
 
@@ -87,7 +91,7 @@ everything under it — pass `-root` explicitly if that matters to you.
 cut off:
 
 ```sh
-./gh-org-clone -dry-run <org> | wc -l
+./gh-org-clone --dry-run <org> | wc -l
 gh api /orgs/<org> --jq '.public_repos + .total_private_repos'
 ```
 

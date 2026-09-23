@@ -58,10 +58,7 @@ func main() {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("gh-org-clone", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: gh-org-clone [flags] <org>")
-		fs.PrintDefaults()
-	}
+	fs.Usage = func() { printUsage(stderr) }
 
 	cfg, err := resolveConfig(fs, args, stderr)
 	if err != nil {
@@ -449,6 +446,73 @@ func defaultConfig() config {
 	}
 }
 
+// flagHelp mirrors gh's own --help formatting: long flags are always
+// double-dash, a shorthand (if any) is single-dash and listed first, and a
+// non-empty value type or default is appended the way gh's own flags show
+// "(default 30)".
+type flagHelp struct {
+	long      string
+	shorthand string
+	valueHint string
+	usage     string
+	def       string
+	quoteDef  bool // gh quotes string defaults but not numeric/duration ones
+}
+
+func usageFlags(d config) []flagHelp {
+	return []flagHelp{
+		{long: "root", valueHint: "string", usage: "root directory for cloned orgs", def: d.Root, quoteDef: true},
+		{long: "concurrency", valueHint: "int", usage: "number of repos to sync in parallel", def: strconv.Itoa(d.Concurrency)},
+		{long: "timeout", valueHint: "duration", usage: "per-subprocess timeout", def: d.Timeout.String()},
+		{long: "max-repos", valueHint: "int", usage: "maximum repos to list from the org (gh --limit)", def: strconv.Itoa(d.MaxRepos)},
+		{long: "protocol", valueHint: "string", usage: "clone protocol: ssh or https", def: d.Protocol, quoteDef: true},
+		{long: "include-forks", usage: "include forked repos"},
+		{long: "archive", usage: "tarball archived repos and remove their clones"},
+		{long: "force", usage: "ignore stored pushedAt and re-sync every repo"},
+		{long: "dry-run", usage: "print the planned actions without doing them"},
+		{long: "verbose", shorthand: "v", usage: "verbose output"},
+		{long: "config", valueHint: "string", usage: "path to a JSON config file"},
+	}
+}
+
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "Clone and keep local mirrors of every repository in a GitHub org.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "USAGE")
+	fmt.Fprintln(w, "  gh-org-clone [flags] <org>")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "FLAGS")
+
+	entries := usageFlags(defaultConfig())
+	left := make([]string, len(entries))
+	width := 0
+	for i, h := range entries {
+		if h.shorthand != "" {
+			left[i] = fmt.Sprintf("  -%s, --%s", h.shorthand, h.long)
+		} else {
+			left[i] = fmt.Sprintf("      --%s", h.long)
+		}
+		if h.valueHint != "" {
+			left[i] += " " + h.valueHint
+		}
+		if len(left[i]) > width {
+			width = len(left[i])
+		}
+	}
+	for i, h := range entries {
+		desc := h.usage
+		switch {
+		case h.def == "":
+			// no default worth showing
+		case h.quoteDef:
+			desc += fmt.Sprintf(" (default %q)", h.def)
+		default:
+			desc += fmt.Sprintf(" (default %s)", h.def)
+		}
+		fmt.Fprintf(w, "%-*s   %s\n", width, left[i], desc)
+	}
+}
+
 // resolveConfig applies flags > env > file > defaults. fs.Visit reports only
 // flags the caller actually typed, so an unset flag never clobbers a value
 // already set by the env or the config file.
@@ -476,6 +540,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 	fs.BoolVar(&force, "force", false, "ignore stored pushedAt and re-sync every repo")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the planned actions without doing them")
 	fs.BoolVar(&verbose, "v", false, "verbose output")
+	fs.BoolVar(&verbose, "verbose", false, "verbose output")
 	fs.StringVar(&configPath, "config", "", "path to a JSON config file")
 
 	if err := fs.Parse(args); err != nil {
@@ -534,7 +599,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 		case "timeout":
 			d, err := time.ParseDuration(timeoutStr)
 			if err != nil {
-				flagErr = fmt.Errorf("-timeout: invalid duration %q: %w", timeoutStr, err)
+				flagErr = fmt.Errorf("--timeout: invalid duration %q: %w", timeoutStr, err)
 				return
 			}
 			cfg.Timeout = d

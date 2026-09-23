@@ -19,6 +19,23 @@ func newFlagSet() *flag.FlagSet {
 	return fs
 }
 
+func TestConfigVerboseAliases(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("HOME", t.TempDir())
+
+	for _, flag := range []string{"-v", "--verbose"} {
+		t.Run(flag, func(t *testing.T) {
+			cfg, err := resolveConfig(newFlagSet(), []string{flag, "myorg"}, os.Stderr)
+			if err != nil {
+				t.Fatalf("resolveConfig: %v", err)
+			}
+			if !cfg.Verbose {
+				t.Fatalf("%s did not set Verbose", flag)
+			}
+		})
+	}
+}
+
 func TestConfigDefaults(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("HOME", t.TempDir())
