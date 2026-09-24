@@ -144,12 +144,16 @@ everything under it — pass `--root` explicitly if that matters to you.
 
 ## Verifying a large org wasn't silently truncated
 
-`gh repo list` is always called with an explicit `--limit`, but if you want to double check nothing was
-cut off:
+`gh repo list` is always called with an explicit `--limit` (`--max-repos`), and a run warns if the listing
+comes back exactly that long, since that is the only sign of truncation gh gives. To double check by hand,
+compare the dry-run plan (which prints one line per repo, forks included only with `--include-forks`)
+against the org's own count:
 
 ```sh
-gh org-clone --dry-run <org> | wc -l
+gh org-clone --dry-run --include-forks <org> | wc -l
 gh api /orgs/<org> --jq '.public_repos + .total_private_repos'
 ```
 
-If those numbers disagree, the fallback is `gh api --paginate '/orgs/<org>/repos?per_page=100&type=all'`.
+The two can also differ because of repos your token can't see, or repos skipped for an invalid or
+case-colliding name (reported on stderr, and they fail the run). If they disagree for another reason, the
+fallback is `gh api --paginate '/orgs/<org>/repos?per_page=100&type=all'`.

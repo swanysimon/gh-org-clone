@@ -114,7 +114,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	st := loadState(statePath(cfg), cfg.Org, stderr)
 
-	tasks, seen := buildTasks(ctx, cfg, repos, st, stderr)
+	// gh's --limit is a hard cap with no "there was more" signal, so a
+	// listing that exactly fills it is the only hint of truncation.
+	if len(repos) >= cfg.MaxRepos {
+		fmt.Fprintf(stderr, "warning: gh repo list returned %d repos, the --max-repos limit; the listing may be truncated, raise --max-repos to be sure\n", len(repos))
+	}
+
+	tasks, seen, prepassFailed := buildTasks(ctx, cfg, repos, st, stderr)
 
 	// AIDEV: absence from the listing is indistinguishable from lost access
 	// to a private repo, so we only ever report it and never delete local
@@ -129,6 +135,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		for _, t := range tasks {
 			fmt.Fprintf(stdout, "%s: %s (%s)\n", t.repo.Name, t.action, t.reason)
 		}
+		if prepassFailed > 0 {
+			return exitRuntimeFail
+		}
 		return exitSuccess
 	}
 
@@ -139,7 +148,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		reposByName[r.Name] = r
 	}
 
-	var cloned, fetched, archived, skipped, failed int
+	var cloned, fetched, archived, skipped int
+	failed := prepassFailed
 	for _, res := range results {
 		for _, n := range res.Notes {
 			fmt.Fprintf(stderr, "warning: %s: %s\n", res.Name, n)
@@ -215,9 +225,11 @@ type task struct {
 
 // buildTasks is the sequential pre-pass: fork filtering, name validation,
 // case-collision detection, ID-based rename fix-up, then decide() per repo.
-// It runs single-threaded, before any worker goroutine starts.
-func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stderr io.Writer) ([]task, map[string]bool) {
-	seen := make(map[string]bool, len(repos))
+// It runs single-threaded, before any worker goroutine starts. failed counts
+// repos the pre-pass refused (invalid or colliding names); they are reported
+// here and must fail the run, since they will never be synced.
+func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stderr io.Writer) (tasks []task, seen map[string]bool, failed int) {
+	seen = make(map[string]bool, len(repos))
 
 	stateNameByID := map[string]string{}
 	for name, rs := range st.Repos {
@@ -228,8 +240,13 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 
 	// APFS is case-insensitive: an org holding both Foo and foo maps to one
 	// directory. Skip both sides rather than interleaving two repos into it.
+	// Only repos that would otherwise be synced count: an excluded fork or
+	// an invalid name never gets a directory to collide over.
 	lowerNames := map[string][]string{}
 	for _, r := range repos {
+		if (r.IsFork && !cfg.IncludeForks) || !validRepoName(r.Name) {
+			continue
+		}
 		lower := strings.ToLower(r.Name)
 		lowerNames[lower] = append(lowerNames[lower], r.Name)
 	}
@@ -240,10 +257,10 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 			for _, n := range names {
 				collided[n] = true
 			}
+			failed += len(names)
 		}
 	}
 
-	var tasks []task
 	for _, repo := range repos {
 		if repo.IsFork && !cfg.IncludeForks {
 			if cfg.Verbose {
@@ -253,6 +270,7 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 		}
 		if !validRepoName(repo.Name) {
 			fmt.Fprintf(stderr, "error: %q is not a valid repo name, skipping\n", repo.Name)
+			failed++
 			continue
 		}
 		if collided[repo.Name] {
@@ -293,7 +311,7 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 		}
 		tasks = append(tasks, task{repo: repo, action: act, reason: reason, prev: prev})
 	}
-	return tasks, seen
+	return tasks, seen, failed
 }
 
 // fixupRename moves a renamed repo's directory and state entry without an

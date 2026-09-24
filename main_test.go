@@ -428,3 +428,66 @@ func TestRunDryRunPlansRenameWithoutPerformingIt(t *testing.T) {
 		t.Fatalf("dry-run must not rewrite state, got %+v", got.Repos)
 	}
 }
+
+func stubGhRepoList(t *testing.T, repos []ghRepo) {
+	t.Helper()
+	reposJSON, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return reposJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+}
+
+func TestRunPrepassErrorsFailTheRun(t *testing.T) {
+	stubGhRepoList(t, []ghRepo{
+		{ID: "R1", Name: "Foo", URL: "file:///nonexistent"},
+		{ID: "R2", Name: "foo", URL: "file:///nonexistent"},
+		{ID: "R3", Name: "-bad", URL: "file:///nonexistent"},
+		// An excluded fork must not collide with, and so block, a real repo.
+		{ID: "R4", Name: "bar", URL: "file:///nonexistent"},
+		{ID: "R5", Name: "Bar", URL: "file:///nonexistent", IsFork: true},
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-root", t.TempDir(), "-protocol", "https", "-dry-run", "testorg"}, &stdout, &stderr)
+	if code != exitRuntimeFail {
+		t.Fatalf("run() = %d, want %d; stderr=%s", code, exitRuntimeFail, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "collide") || !strings.Contains(stderr.String(), "not a valid repo name") {
+		t.Fatalf("stderr should report the collision and the invalid name: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "bar: clone") {
+		t.Fatalf("bar should be planned despite the excluded fork Bar: %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Foo:") || strings.Contains(stdout.String(), "foo:") {
+		t.Fatalf("colliding repos must not be planned: %s", stdout.String())
+	}
+}
+
+func TestRunWarnsWhenListingMayBeTruncated(t *testing.T) {
+	stubGhRepoList(t, []ghRepo{
+		{ID: "R1", Name: "one", URL: "file:///nonexistent"},
+		{ID: "R2", Name: "two", URL: "file:///nonexistent"},
+	})
+
+	for _, tc := range []struct {
+		maxRepos string
+		warn     bool
+	}{{"2", true}, {"3", false}} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-root", t.TempDir(), "-protocol", "https", "-dry-run", "-max-repos", tc.maxRepos, "testorg"}, &stdout, &stderr)
+		if code != exitSuccess {
+			t.Fatalf("max-repos=%s: run() = %d, stderr=%s", tc.maxRepos, code, stderr.String())
+		}
+		if got := strings.Contains(stderr.String(), "may be truncated"); got != tc.warn {
+			t.Fatalf("max-repos=%s: truncation warning = %v, want %v; stderr=%s", tc.maxRepos, got, tc.warn, stderr.String())
+		}
+	}
+}
