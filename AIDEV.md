@@ -640,6 +640,22 @@ rewritten after the fact.
   identically; treat `README.md`'s table as the current source of truth for flag spelling.
 - Regression coverage: `TestConfigVerboseAliases` in `main_test.go` asserts `-v` and `--verbose` both
   set `Verbose`.
+- **Real `gh extension install` support (2026-09-23).** Previously the README only claimed the PATH
+  trick ("putting the binary on `PATH` makes `gh org-clone <org>` work for free") and never actually
+  told anyone to run `gh extension install`. That claim was true but useless — nobody builds from
+  source just to get a `gh` subcommand. Added `.github/workflows/release.yml` using
+  `cli/gh-extension-precompile@v2`: pushing a `v*` tag now cross-compiles for every OS/arch `gh`
+  extensions support and attaches the binaries to a GitHub Release. `gh extension install
+  swanysimon/gh-org-clone` finds that release and downloads the matching binary directly — no Go
+  toolchain needed on the installing machine, and no extension manifest needed either (`gh` detects
+  precompiled extensions by the release asset naming convention the action produces). `README.md` was
+  rewritten so install → configure → on-disk layout is the front-loaded story, with `go build` demoted
+  to a collapsed "building from source" aside for contributors. `printUsage` in `main.go` now shows `gh
+  org-clone [flags] <org>` as the usage line instead of `gh-org-clone [flags] <org>`, matching how
+  everyone will actually invoke it post-install.
+- Nothing to regression-test here — `cli/gh-extension-precompile` only runs on tag push in CI, and
+  `printUsage`'s literal string change is covered by existing usage-output tests if any compare exact
+  text; otherwise it's a docs-only line.
 
 ## Deferred — consciously out of scope
 

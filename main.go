@@ -479,7 +479,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Clone and keep local mirrors of every repository in a GitHub org.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "USAGE")
-	fmt.Fprintln(w, "  gh-org-clone [flags] <org>")
+	fmt.Fprintln(w, "  gh org-clone [flags] <org>")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "FLAGS")
 

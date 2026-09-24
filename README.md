@@ -1,40 +1,59 @@
 # gh-org-clone
 
-Mirrors every repository in a GitHub organization into one local directory, so the whole org is
-available offline as reference material (for coding agents or otherwise). On each run it clones what's
-missing, fetches what already exists, and tarballs anything archived upstream — doing as little work as
-possible on repeat runs.
+A [`gh`](https://cli.github.com/) extension that mirrors every repository in a GitHub organization into
+one local directory, so the whole org is available offline as reference material (for coding agents or
+otherwise). On each run it clones what's missing, fetches what already exists, and tarballs anything
+archived upstream — doing as little work as possible on repeat runs.
 
 ## Install
 
 ```sh
-go build -o gh-org-clone .
+gh extension install swanysimon/gh-org-clone
 ```
 
-or `go install github.com/swanysimon/gh-org-clone@latest`.
+This downloads a prebuilt binary for your platform — no Go toolchain required. Requires `gh` itself to
+be authenticated (`gh auth login`) and `git` on `PATH`.
 
-Because the binary is named `gh-org-clone`, putting it on `PATH` also makes it work as a `gh` extension
-for free: `gh org-clone <org>` runs it. No extension manifest is needed for this.
+To upgrade later:
+
+```sh
+gh extension upgrade swanysimon/gh-org-clone
+```
+
+<details>
+<summary>Building from source instead</summary>
+
+```sh
+go build -o gh-org-clone .
+gh extension install .
+```
+
+`gh extension install .` (run from this checkout) links the extension to the binary you just built,
+which is useful while developing against a local change.
+</details>
 
 ## Usage
 
 ```sh
-gh-org-clone [flags] <org>
+gh org-clone [flags] <org>
 ```
 
-Requires `gh` (authenticated) and `git` on `PATH`.
+Run it against any org you can see with `gh` — public repos need no special access, private ones need a
+token with read access to them.
 
-## Flags, environment variables and config file keys
+```sh
+gh org-clone my-org               # first run: clones everything
+gh org-clone my-org               # second run: only fetches what changed
+gh org-clone --dry-run -v my-org  # see what would happen, do nothing
+```
+
+## Configure
 
 Precedence is **flags > environment > config file > defaults**.
 
-Flags follow `gh`'s own convention: every long flag takes `--name` (Go's flag parser also accepts a
-single dash, e.g. `-root`, but `--root` is how it's documented and how `gh --help` shows its own
-flags); `-v`/`--verbose` is the one flag with a one-letter shorthand, again matching `gh`.
-
 | Flag | Env var | Config key | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `--root` | `GH_ORG_CLONE_ROOT` | `root` | see below | root directory for all cloned orgs |
+| `--root` | `GH_ORG_CLONE_ROOT` | `root` | see [Where repositories end up](#where-repositories-end-up) | root directory for all cloned orgs |
 | `--concurrency` | `GH_ORG_CLONE_CONCURRENCY` | `concurrency` | `8` | repos synced in parallel |
 | `--timeout` | `GH_ORG_CLONE_TIMEOUT` | `timeout` | `30m` | per-subprocess timeout |
 | `--max-repos` | `GH_ORG_CLONE_MAX_REPOS` | `maxRepos` | `10000` | `gh repo list --limit`; gh itself defaults to 30 |
@@ -45,6 +64,9 @@ flags); `-v`/`--verbose` is the one flag with a one-letter shorthand, again matc
 | `--dry-run` | — | — | `false` | print planned actions, do nothing |
 | `-v`, `--verbose` | — | — | `false` | verbose output (e.g. reports skipped forks) |
 | `--config` | `GH_ORG_CLONE_CONFIG` | — | see below | path to the JSON config file |
+
+Flags follow `gh`'s own convention: every long flag is `--name`; `-v`/`--verbose` is the one flag with a
+one-letter shorthand, again matching `gh`.
 
 The config file is JSON, e.g.:
 
@@ -60,7 +82,7 @@ Its search path (first match wins): `--config` flag, `$GH_ORG_CLONE_CONFIG`,
 `$XDG_CONFIG_HOME/gh-org-clone/config.json`, else `~/.config/gh-org-clone/config.json`. An unknown key
 or a value that fails to parse is a hard error — it is never silently ignored.
 
-## On-disk layout
+## Where repositories end up
 
 ```
 <root>/<org>/state.json
@@ -91,7 +113,7 @@ everything under it — pass `--root` explicitly if that matters to you.
 cut off:
 
 ```sh
-./gh-org-clone --dry-run <org> | wc -l
+gh org-clone --dry-run <org> | wc -l
 gh api /orgs/<org> --jq '.public_repos + .total_private_repos'
 ```
 
