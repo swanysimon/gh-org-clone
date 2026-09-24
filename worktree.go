@@ -156,7 +156,12 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return exitUsage
 	}
-	branch, path := rest[1], rest[2]
+	branch := rest[1]
+	path, err := absWorktreePath(rest[2])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitUsage
+	}
 	cfg.Org = org
 
 	if _, err := exec.LookPath("gh"); err != nil {
@@ -214,6 +219,21 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 	return exitSuccess
 }
 
+// absWorktreePath resolves a user-supplied worktree path against the
+// caller's working directory. git is run with its working directory set to
+// the central clone, so a relative path passed through unchanged would be
+// resolved against the clone and land the worktree inside it.
+func absWorktreePath(p string) (string, error) {
+	if p == "" {
+		return "", fmt.Errorf("worktree path must not be empty")
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("resolving worktree path %q: %w", p, err)
+	}
+	return abs, nil
+}
+
 // ensureClonedForWorktree clones a repo outside of a normal sync run, so it
 // takes the same per-org lock a sync run holds (refusing rather than racing
 // it) and writes the same state.json entry a sync run would, so a later sync
@@ -267,7 +287,11 @@ func cmdWorktreeRemove(ctx context.Context, args []string, stdout, stderr io.Wri
 		return exitUsage
 	}
 	cfg.Org = org
-	path := rest[1]
+	path, err := absWorktreePath(rest[1])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitUsage
+	}
 
 	if _, err := exec.LookPath("git"); err != nil {
 		fmt.Fprintln(stderr, "gh-org-clone requires git on PATH:", err)

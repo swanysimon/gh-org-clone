@@ -328,3 +328,59 @@ func TestRunDispatchesToWorktree(t *testing.T) {
 		t.Fatalf("output missing worktree path: %s", stdout.String())
 	}
 }
+
+// A relative worktree path must resolve against the caller's cwd, not the
+// central clone that git is run from.
+func TestWorktreeRelativePathResolvesAgainstCwd(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(reposDir(cfg), "repo1")
+	if _, err := execCommand(context.Background(), dir, "git", "branch", "feature"); err != nil {
+		t.Fatal(err)
+	}
+
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "feature", "wt"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeAdd = %d, stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "wt", "file.txt")); err != nil {
+		t.Fatalf("worktree should have been created under cwd: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "wt")); !os.IsNotExist(err) {
+		t.Fatalf("worktree must not land inside the central clone, stat err = %v", err)
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	code = cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "testorg/repo1", "wt"}, &stdout2, &stderr2)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeRemove = %d, stderr=%s", code, stderr2.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "wt")); !os.IsNotExist(err) {
+		t.Fatalf("worktree should be gone, stat err = %v", err)
+	}
+}
