@@ -65,6 +65,12 @@ gh org-clone worktree remove my-org/my-repo ~/code/my-repo-some-branch
 gh org-clone worktree remove --force my-org/my-repo ~/code/my-repo-some-branch  # even if it's dirty
 ```
 
+`worktree add` fetches the central clone first, so a branch pushed since the last sync is available.
+An existing local or `origin/` branch is checked out as-is; a branch that exists nowhere is created
+from `origin/<default branch>` (with no upstream set, so the first `git push -u` decides it). Relative
+paths are resolved against your current directory. It takes the same per-org lock as a sync run, so it
+refuses while one is in progress.
+
 `worktree add` refuses (after cloning, so the clone still lands) if the repo is archived upstream —
 archived repos aren't expected to get new work. `worktree add`/`remove`/`list` accept `--root`,
 `--protocol`, `--timeout` and `--config`, same as the sync command; `--concurrency`,

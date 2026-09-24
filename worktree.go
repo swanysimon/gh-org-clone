@@ -221,12 +221,62 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 		return exitRuntimeFail
 	}
 
-	if _, err := runner(ctx, dir, "git", "worktree", "add", "--", path, branch); err != nil {
+	// A clone that already existed may predate the branch being pushed.
+	// Failing to fetch (e.g. offline) is not fatal: the local refs may
+	// still be enough to add the worktree.
+	if dirExists {
+		if err := fetchRepo(ctx, cfg, dir); err != nil {
+			fmt.Fprintf(stderr, "warning: could not fetch before adding worktree, using local refs: %v\n", err)
+		}
+	}
+
+	defaultBranch := ""
+	if repo.DefaultBranch != nil {
+		defaultBranch = repo.DefaultBranch.Name
+	}
+	gitArgs, created, err := worktreeAddArgs(ctx, cfg, dir, path, branch, defaultBranch)
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitRuntimeFail
 	}
+	if _, err := runner(ctx, dir, "git", gitArgs...); err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitRuntimeFail
+	}
+	if created != "" {
+		fmt.Fprintf(stdout, "created new branch %q from %s\n", branch, created)
+	}
 	fmt.Fprintf(stdout, "added worktree for %s@%s at %s\n", repo.NameWithOwner, branch, path)
 	return exitSuccess
+}
+
+// worktreeAddArgs picks how to check out branch. A local branch, or a
+// remote-tracking origin/<branch> (which git DWIMs into a local tracking
+// branch), is checked out as-is. A branch that exists nowhere is created
+// from the default branch's remote-tracking ref (falling back to HEAD) with
+// --no-track, so it doesn't end up with the default branch as its upstream.
+// createdFrom is non-empty only when a new branch is being created.
+func worktreeAddArgs(ctx context.Context, cfg config, dir, path, branch, defaultBranch string) (args []string, createdFrom string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	if _, err := runner(ctx, dir, "git", "check-ref-format", "--branch", branch); err != nil {
+		return nil, "", fmt.Errorf("%q is not a valid branch name", branch)
+	}
+
+	refExists := func(ref string) bool {
+		_, err := runner(ctx, dir, "git", "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+		return err == nil
+	}
+	if refExists("refs/heads/"+branch) || refExists("refs/remotes/origin/"+branch) {
+		return []string{"worktree", "add", "--", path, branch}, "", nil
+	}
+
+	base := "HEAD"
+	if defaultBranch != "" && refExists("refs/remotes/origin/"+defaultBranch) {
+		base = "origin/" + defaultBranch
+	}
+	return []string{"worktree", "add", "--no-track", "-b", branch, "--", path, base}, base, nil
 }
 
 // absWorktreePath resolves a user-supplied worktree path against the

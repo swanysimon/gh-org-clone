@@ -429,3 +429,105 @@ func TestWorktreeAddRefusesWhileLockHeld(t *testing.T) {
 		t.Fatalf("someone else's lock must not be removed: %v", err)
 	}
 }
+
+// A branch pushed upstream after the central clone was made must still be
+// usable: worktree add fetches before resolving the branch.
+func TestWorktreeAddFetchesBranchCreatedAfterClone(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execCommand(context.Background(), origin, "git", "branch", "late"); err != nil {
+		t.Fatal(err)
+	}
+
+	stubGhRepoView(t, repo)
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "late", wtPath}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeAdd = %d, stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "created new branch") {
+		t.Fatalf("an upstream branch should be checked out, not created: %s", stdout.String())
+	}
+	out, err := execCommand(context.Background(), wtPath, "git", "rev-parse", "--abbrev-ref", "late@{upstream}")
+	if err != nil || strings.TrimSpace(string(out)) != "origin/late" {
+		t.Fatalf("worktree branch should track origin/late, got %q (%v)", out, err)
+	}
+}
+
+// A branch that exists nowhere is created from origin/<default> without
+// taking the default branch as its upstream.
+func TestWorktreeAddCreatesMissingBranch(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+
+	stubGhRepoView(t, repo)
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "brand-new", wtPath}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeAdd = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `created new branch "brand-new" from origin/main`) {
+		t.Fatalf("stdout should report the new branch: %s", stdout.String())
+	}
+	out, err := execCommand(context.Background(), wtPath, "git", "symbolic-ref", "--short", "HEAD")
+	if err != nil || strings.TrimSpace(string(out)) != "brand-new" {
+		t.Fatalf("worktree should be on brand-new, got %q (%v)", out, err)
+	}
+	if _, err := execCommand(context.Background(), wtPath, "git", "rev-parse", "--abbrev-ref", "brand-new@{upstream}"); err == nil {
+		t.Fatalf("new branch must not track the default branch")
+	}
+}
+
+func TestWorktreeAddRejectsInvalidBranchName(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+
+	stubGhRepoView(t, repo)
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "bad..name", wtPath}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("expected failure for an invalid branch name")
+	}
+	if !strings.Contains(stderr.String(), "not a valid branch name") {
+		t.Fatalf("stderr should explain the bad branch name: %s", stderr.String())
+	}
+}
+
+// stubGhRepoView answers every gh call with repo's JSON and passes git
+// through to the real binary.
+func stubGhRepoView(t *testing.T, repo ghRepo) {
+	t.Helper()
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+}
