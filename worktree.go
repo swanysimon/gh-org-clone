@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -24,6 +26,9 @@ func runWorktree(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		printWorktreeUsage(stderr)
 		return exitUsage
 	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	verb, rest := args[0], args[1:]
 	switch verb {
@@ -98,7 +103,7 @@ func resolveWorktreeConfig(fs *flag.FlagSet, args []string) (config, []string, e
 		}
 	}
 
-	if err := overlayEnv(&cfg); err != nil {
+	if err := overlayEnv(&cfg, "GH_ORG_CLONE_ROOT", "GH_ORG_CLONE_PROTOCOL", "GH_ORG_CLONE_TIMEOUT"); err != nil {
 		return config{}, nil, err
 	}
 
@@ -190,7 +195,9 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 		return exitRuntimeFail
 	}
 
-	repo, err := getRepo(ctx, org+"/"+repoName)
+	gctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	repo, err := getRepo(gctx, org+"/"+repoName)
+	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitRuntimeFail
@@ -262,7 +269,7 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return exitRuntimeFail
 	}
-	if _, err := runner(ctx, dir, "git", gitArgs...); err != nil {
+	if _, err := runGit(ctx, cfg, dir, gitArgs...); err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitRuntimeFail
 	}
@@ -382,7 +389,7 @@ func cmdWorktreeRemove(ctx context.Context, args []string, stdout, stderr io.Wri
 		gitArgs = append(gitArgs, "--force")
 	}
 	gitArgs = append(gitArgs, "--", path)
-	if _, err := runner(ctx, dir, "git", gitArgs...); err != nil {
+	if _, err := runGit(ctx, cfg, dir, gitArgs...); err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitRuntimeFail
 	}
@@ -463,7 +470,7 @@ func cmdWorktreeList(ctx context.Context, args []string, stdout, stderr io.Write
 
 func printWorktrees(ctx context.Context, cfg config, repoName string, stdout io.Writer) error {
 	dir := filepath.Join(reposDir(cfg), repoName)
-	out, err := runner(ctx, dir, "git", "worktree", "list")
+	out, err := runGit(ctx, cfg, dir, "worktree", "list")
 	if err != nil {
 		return fmt.Errorf("listing worktrees for %s: %w", repoName, err)
 	}

@@ -35,6 +35,13 @@ func execCommand(ctx context.Context, dir, name string, args ...string) ([]byte,
 	return stdout.Bytes(), nil
 }
 
+// runGit runs one git command bounded by cfg.Timeout.
+func runGit(ctx context.Context, cfg config, dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+	return runner(ctx, dir, "git", args...)
+}
+
 type archiveTag struct {
 	Name      string    `json:"name"`
 	SHA       string    `json:"sha"`

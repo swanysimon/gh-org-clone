@@ -565,3 +565,50 @@ func TestWorktreeAddDoesNotRecloneLocallyArchivedRepo(t *testing.T) {
 		t.Fatalf("state must not be rewritten, stat err = %v", err)
 	}
 }
+
+// Worktree commands don't accept --concurrency and friends, so a bad value
+// in the matching environment variable must not make them fail.
+func TestWorktreeIgnoresUnrelatedEnv(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	if err := cloneRepo(context.Background(), cfg, ghRepo{Name: "repo1", URL: "file://" + origin}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_ORG_CLONE_CONCURRENCY", "lots")
+	t.Setenv("GH_ORG_CLONE_ARCHIVE", "maybe")
+
+	var stdout, stderr bytes.Buffer
+	if code := cmdWorktreeList(context.Background(), []string{"-root", cfg.Root, "testorg/repo1"}, &stdout, &stderr); code != exitSuccess {
+		t.Fatalf("cmdWorktreeList = %d, stderr=%s", code, stderr.String())
+	}
+
+	// A worktree setting with a bad value still fails.
+	t.Setenv("GH_ORG_CLONE_TIMEOUT", "soon")
+	stderr.Reset()
+	if code := cmdWorktreeList(context.Background(), []string{"-root", cfg.Root, "testorg/repo1"}, &stdout, &stderr); code != exitUsage {
+		t.Fatalf("cmdWorktreeList with bad GH_ORG_CLONE_TIMEOUT = %d, want %d", code, exitUsage)
+	}
+}
+
+func TestWorktreeAddAppliesTimeoutToGhLookup(t *testing.T) {
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			<-ctx.Done() // a hung gh must be cut off by --timeout
+			return nil, ctx.Err()
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", t.TempDir(), "--timeout", "50ms", "testorg/repo1", "main", t.TempDir()}, &stdout, &stderr)
+	if code != exitRuntimeFail {
+		t.Fatalf("cmdWorktreeAdd = %d, want %d; stderr=%s", code, exitRuntimeFail, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "deadline exceeded") {
+		t.Fatalf("stderr should report the timeout: %s", stderr.String())
+	}
+}

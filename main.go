@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -749,47 +750,71 @@ func loadFileConfig(path string) (*fileConfig, error) {
 	return &fc, nil
 }
 
-func overlayEnv(cfg *config) error {
-	if v := os.Getenv("GH_ORG_CLONE_ROOT"); v != "" {
-		cfg.Root = v
-	}
-	if v := os.Getenv("GH_ORG_CLONE_CONCURRENCY"); v != "" {
+// envSettings maps each GH_ORG_CLONE_* variable to how it applies to a
+// config. overlayEnv applies them in this order.
+var envSettings = []struct {
+	name  string
+	apply func(cfg *config, v string) error
+}{
+	{"GH_ORG_CLONE_ROOT", func(cfg *config, v string) error { cfg.Root = v; return nil }},
+	{"GH_ORG_CLONE_CONCURRENCY", func(cfg *config, v string) error {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("GH_ORG_CLONE_CONCURRENCY: invalid integer %q: %w", v, err)
+			return fmt.Errorf("invalid integer %q: %w", v, err)
 		}
 		cfg.Concurrency = n
-	}
-	if v := os.Getenv("GH_ORG_CLONE_TIMEOUT"); v != "" {
+		return nil
+	}},
+	{"GH_ORG_CLONE_TIMEOUT", func(cfg *config, v string) error {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return fmt.Errorf("GH_ORG_CLONE_TIMEOUT: invalid duration %q: %w", v, err)
+			return fmt.Errorf("invalid duration %q: %w", v, err)
 		}
 		cfg.Timeout = d
-	}
-	if v := os.Getenv("GH_ORG_CLONE_MAX_REPOS"); v != "" {
+		return nil
+	}},
+	{"GH_ORG_CLONE_MAX_REPOS", func(cfg *config, v string) error {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("GH_ORG_CLONE_MAX_REPOS: invalid integer %q: %w", v, err)
+			return fmt.Errorf("invalid integer %q: %w", v, err)
 		}
 		cfg.MaxRepos = n
-	}
-	if v := os.Getenv("GH_ORG_CLONE_PROTOCOL"); v != "" {
-		cfg.Protocol = v
-	}
-	if v := os.Getenv("GH_ORG_CLONE_INCLUDE_FORKS"); v != "" {
+		return nil
+	}},
+	{"GH_ORG_CLONE_PROTOCOL", func(cfg *config, v string) error { cfg.Protocol = v; return nil }},
+	{"GH_ORG_CLONE_INCLUDE_FORKS", func(cfg *config, v string) error {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return fmt.Errorf("GH_ORG_CLONE_INCLUDE_FORKS: invalid bool %q: %w", v, err)
+			return fmt.Errorf("invalid bool %q: %w", v, err)
 		}
 		cfg.IncludeForks = b
-	}
-	if v := os.Getenv("GH_ORG_CLONE_ARCHIVE"); v != "" {
+		return nil
+	}},
+	{"GH_ORG_CLONE_ARCHIVE", func(cfg *config, v string) error {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return fmt.Errorf("GH_ORG_CLONE_ARCHIVE: invalid bool %q: %w", v, err)
+			return fmt.Errorf("invalid bool %q: %w", v, err)
 		}
 		cfg.Archive = b
+		return nil
+	}},
+}
+
+// overlayEnv applies the named GH_ORG_CLONE_* variables (all of them if
+// none are named). Commands pass only the settings they accept, so a bad
+// value in a variable a command ignores can't make it fail.
+func overlayEnv(cfg *config, only ...string) error {
+	for _, e := range envSettings {
+		if len(only) > 0 && !slices.Contains(only, e.name) {
+			continue
+		}
+		v := os.Getenv(e.name)
+		if v == "" {
+			continue
+		}
+		if err := e.apply(cfg, v); err != nil {
+			return fmt.Errorf("%s: %w", e.name, err)
+		}
 	}
 	return nil
 }

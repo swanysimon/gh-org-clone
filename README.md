@@ -72,9 +72,11 @@ paths are resolved against your current directory. It takes the same per-org loc
 refuses while one is in progress.
 
 `worktree add` refuses (after cloning, so the clone still lands) if the repo is archived upstream —
-archived repos aren't expected to get new work. `worktree add`/`remove`/`list` accept `--root`,
+archived repos aren't expected to get new work. If the repo is already archived locally, it refuses
+without re-cloning and points at the tarball instead. `worktree add`/`remove`/`list` accept `--root`,
 `--protocol`, `--timeout` and `--config`, same as the sync command; `--concurrency`,
-`--max-repos`, `--include-forks` and `--archive` don't apply to a single repo and aren't accepted.
+`--max-repos`, `--include-forks` and `--archive` don't apply to a single repo and aren't accepted
+(their environment variables and config keys are ignored).
 
 ## Configure
 
