@@ -285,10 +285,9 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 		dirExists := dirErr == nil
 		_, gitErr := os.Stat(filepath.Join(dir, ".git"))
 		isGitDir := gitErr == nil
-		_, manErr := os.Stat(manifestPath(cfg, repo.Name))
-		manifestExists := manErr == nil
+		archiveExists := localArchiveExists(cfg, repo.Name)
 
-		act, reason := decide(repo, prev, known, dirExists, isGitDir, manifestExists, cfg)
+		act, reason := decide(repo, prev, known, dirExists, isGitDir, archiveExists, cfg)
 		if renamedFrom != "" {
 			reason = fmt.Sprintf("rename from %q, then: %s", renamedFrom, reason)
 		}

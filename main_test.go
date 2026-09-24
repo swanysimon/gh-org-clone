@@ -269,7 +269,8 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 
 	// Incremental assertion: a second run must issue exactly one gh call
-	// and zero git calls, with every live repo reported skipped.
+	// and zero git calls, with every repo (live or already archived)
+	// reported skipped.
 	ghCalls.Store(0)
 	gitCalls.Store(0)
 	var stdout2, stderr2 bytes.Buffer
@@ -284,7 +285,7 @@ func TestRunEndToEnd(t *testing.T) {
 		t.Fatalf("second run made %d git calls, want 0", got)
 	}
 	summary2 := stdout2.String()
-	if !strings.Contains(summary2, "skipped=2") || !strings.Contains(summary2, "archived=1") {
+	if !strings.Contains(summary2, "skipped=3") || !strings.Contains(summary2, "archived=0") {
 		t.Fatalf("unexpected second-run summary: %q", summary2)
 	}
 }

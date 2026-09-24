@@ -14,14 +14,21 @@ const (
 
 // decide is pure: no filesystem, no subprocess, no clock. All filesystem
 // facts arrive as parameters so the whole decision matrix is table-testable.
-func decide(repo ghRepo, prev repoState, known, dirExists, isGitDir, manifestExists bool, cfg config) (action, string) {
+//
+// archiveExists means both the manifest and the tarball are on disk.
+func decide(repo ghRepo, prev repoState, known, dirExists, isGitDir, archiveExists bool, cfg config) (action, string) {
 	if dirExists && !isGitDir {
 		return actionNotARepo, "directory exists but is not a git repository"
 	}
 
 	if repo.IsArchived && cfg.Archive {
-		if manifestExists && !dirExists {
-			return actionAdoptArchived, "archive manifest already on disk"
+		if archiveExists && !dirExists {
+			// Once recorded, an archive is not re-verified on every run;
+			// --force re-checks the tarball against its manifest.
+			if known && !cfg.Force && prev.Status == statusArchived {
+				return actionSkip, "already archived locally"
+			}
+			return actionAdoptArchived, "archive already on disk"
 		}
 		return actionArchive, "repo is archived upstream"
 	}

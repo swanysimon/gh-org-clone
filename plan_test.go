@@ -16,15 +16,15 @@ func TestDecide(t *testing.T) {
 	noArchiveCfg.Archive = false
 
 	cases := []struct {
-		name           string
-		repo           ghRepo
-		prev           repoState
-		known          bool
-		dirExists      bool
-		isGitDir       bool
-		manifestExists bool
-		cfg            config
-		want           action
+		name          string
+		repo          ghRepo
+		prev          repoState
+		known         bool
+		dirExists     bool
+		isGitDir      bool
+		archiveExists bool
+		cfg           config
+		want          action
 	}{
 		{
 			name:      "fresh unknown repo",
@@ -95,14 +95,40 @@ func TestDecide(t *testing.T) {
 			want:      actionArchive,
 		},
 		{
-			name:           "archived with manifest and no clone",
-			repo:           ghRepo{PushedAt: t1, IsArchived: true},
-			known:          false,
-			dirExists:      false,
-			isGitDir:       false,
-			manifestExists: true,
-			cfg:            baseCfg,
-			want:           actionAdoptArchived,
+			name:          "archived with manifest and no clone",
+			repo:          ghRepo{PushedAt: t1, IsArchived: true},
+			known:         false,
+			dirExists:     false,
+			isGitDir:      false,
+			archiveExists: true,
+			cfg:           baseCfg,
+			want:          actionAdoptArchived,
+		},
+		{
+			name:          "already archived and recorded",
+			repo:          ghRepo{PushedAt: t1, IsArchived: true},
+			prev:          repoState{PushedAt: t1, Status: statusArchived},
+			known:         true,
+			archiveExists: true,
+			cfg:           baseCfg,
+			want:          actionSkip,
+		},
+		{
+			name:          "already archived and recorded, with force",
+			repo:          ghRepo{PushedAt: t1, IsArchived: true},
+			prev:          repoState{PushedAt: t1, Status: statusArchived},
+			known:         true,
+			archiveExists: true,
+			cfg:           forceCfg,
+			want:          actionAdoptArchived,
+		},
+		{
+			name:  "recorded as archived but archive missing from disk",
+			repo:  ghRepo{PushedAt: t1, IsArchived: true},
+			prev:  repoState{PushedAt: t1, Status: statusArchived},
+			known: true,
+			cfg:   baseCfg,
+			want:  actionArchive,
 		},
 		{
 			name:      "archived upstream but cfg.Archive false",
@@ -127,7 +153,7 @@ func TestDecide(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, reason := decide(tc.repo, tc.prev, tc.known, tc.dirExists, tc.isGitDir, tc.manifestExists, tc.cfg)
+			got, reason := decide(tc.repo, tc.prev, tc.known, tc.dirExists, tc.isGitDir, tc.archiveExists, tc.cfg)
 			if got != tc.want {
 				t.Fatalf("decide() = %q (%s), want %q", got, reason, tc.want)
 			}
