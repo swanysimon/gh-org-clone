@@ -36,6 +36,51 @@ type archiveManifest struct {
 	TarballSHA256   string       `json:"tarballSha256"`
 }
 
+// worktreeStatus is a linked worktree plus whether it currently has
+// uncommitted changes, so a removal prompt can warn before discarding them.
+type worktreeStatus struct {
+	Path  string
+	Dirty bool
+}
+
+// confirmAndRemoveWorktrees is a no-op when dir has no linked worktrees. When
+// it does, it asks before removing any of them (see
+// defaultConfirmArchiveWithWorktrees for exactly what "no answer available"
+// resolves to) and, on "no", refuses to archive rather than orphaning them.
+func confirmAndRemoveWorktrees(ctx context.Context, cfg config, repo ghRepo, dir string) error {
+	paths, err := linkedWorktrees(ctx, cfg, dir)
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	worktrees := make([]worktreeStatus, len(paths))
+	for i, p := range paths {
+		dirty, err := isDirty(ctx, cfg, p)
+		if err != nil {
+			return fmt.Errorf("checking worktree %q of %q: %w", p, repo.Name, err)
+		}
+		worktrees[i] = worktreeStatus{Path: p, Dirty: dirty}
+	}
+
+	ok, err := confirmArchiveWithWorktrees(cfg, repo.Name, worktrees)
+	if err != nil {
+		return fmt.Errorf("confirming archive of %q with live worktrees: %w", repo.Name, err)
+	}
+	if !ok {
+		return fmt.Errorf("repo %q has %d live worktree(s), refusing to archive; remove them (or rerun with --yes, or interactively and answer yes) to proceed", repo.Name, len(worktrees))
+	}
+
+	for _, w := range worktrees {
+		if _, err := runner(ctx, dir, "git", "worktree", "remove", "--force", "--", w.Path); err != nil {
+			return fmt.Errorf("removing worktree %q of %q: %w", w.Path, repo.Name, err)
+		}
+	}
+	return nil
+}
+
 func manifestPath(cfg config, repoName string) string {
 	return filepath.Join(archivesDir(cfg), repoName+".json")
 }
@@ -234,6 +279,14 @@ func archiveRepo(ctx context.Context, cfg config, repo ghRepo) (repoState, []str
 	}
 	if dirty {
 		return repoState{}, notes, fmt.Errorf("repo %q has uncommitted changes, refusing to archive", repo.Name)
+	}
+
+	// A linked worktree elsewhere on disk survives only as long as this
+	// repo's .git directory does; deleting it out from under a worktree
+	// leaves that worktree permanently broken with no clean recovery. Ask
+	// before doing that, rather than silently orphaning it.
+	if err := confirmAndRemoveWorktrees(ctx, cfg, repo, dir); err != nil {
+		return repoState{}, notes, err
 	}
 
 	if err := fetchRepo(ctx, cfg, dir); err != nil {

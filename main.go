@@ -39,6 +39,7 @@ type config struct {
 	Force        bool
 	DryRun       bool
 	Verbose      bool
+	Yes          bool // skip the archive-with-live-worktrees confirmation prompt
 }
 
 type fileConfig struct {
@@ -56,6 +57,10 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "worktree" {
+		return runWorktree(ctx, args[1:], stdout, stderr)
+	}
+
 	fs := flag.NewFlagSet("gh-org-clone", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { printUsage(stderr) }
@@ -471,6 +476,7 @@ func usageFlags(d config) []flagHelp {
 		{long: "force", usage: "ignore stored pushedAt and re-sync every repo"},
 		{long: "dry-run", usage: "print the planned actions without doing them"},
 		{long: "verbose", shorthand: "v", usage: "verbose output"},
+		{long: "yes", usage: "don't prompt before removing worktrees to archive a repo they belong to"},
 		{long: "config", valueHint: "string", usage: "path to a JSON config file"},
 	}
 }
@@ -480,6 +486,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "USAGE")
 	fmt.Fprintln(w, "  gh org-clone [flags] <org>")
+	fmt.Fprintln(w, "  gh org-clone worktree add <org>/<repo> <branch> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree remove [--force] <org>/<repo> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree list <org>/<repo>|<org>")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "FLAGS")
 
@@ -528,6 +537,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 		force        bool
 		dryRun       bool
 		verbose      bool
+		yes          bool
 		configPath   string
 	)
 	fs.StringVar(&root, "root", "", "root directory for cloned orgs")
@@ -541,6 +551,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 	fs.BoolVar(&dryRun, "dry-run", false, "print the planned actions without doing them")
 	fs.BoolVar(&verbose, "v", false, "verbose output")
 	fs.BoolVar(&verbose, "verbose", false, "verbose output")
+	fs.BoolVar(&yes, "yes", false, "don't prompt before removing worktrees to archive a repo they belong to")
 	fs.StringVar(&configPath, "config", "", "path to a JSON config file")
 
 	if err := fs.Parse(args); err != nil {
@@ -621,6 +632,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 	cfg.Force = force
 	cfg.DryRun = dryRun
 	cfg.Verbose = verbose
+	cfg.Yes = yes
 
 	if err := validateConfig(cfg); err != nil {
 		return config{}, err

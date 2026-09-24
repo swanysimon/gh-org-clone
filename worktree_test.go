@@ -1,0 +1,330 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestParseOrgRepo(t *testing.T) {
+	tests := []struct {
+		in      string
+		wantOrg string
+		wantRep string
+		wantErr bool
+	}{
+		{"myorg/myrepo", "myorg", "myrepo", false},
+		{"myorg/my-repo.thing", "myorg", "my-repo.thing", false},
+		{"myrepo", "", "", true},
+		{"myorg/", "", "", true},
+		{"/myrepo", "", "", true},
+		{"my org/myrepo", "", "", true},
+		{"myorg/-myrepo", "", "", true},
+	}
+	for _, tc := range tests {
+		org, repo, err := parseOrgRepo(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseOrgRepo(%q): expected an error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseOrgRepo(%q): unexpected error: %v", tc.in, err)
+			continue
+		}
+		if org != tc.wantOrg || repo != tc.wantRep {
+			t.Errorf("parseOrgRepo(%q) = (%q, %q), want (%q, %q)", tc.in, org, repo, tc.wantOrg, tc.wantRep)
+		}
+	}
+}
+
+func TestWorktreeAddClonesAndAddsWorktree(t *testing.T) {
+	origin := initTestRepo(t)
+	if _, err := execCommand(context.Background(), origin, "git", "branch", "feature"); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := ghRepo{
+		ID:            "R_repo1",
+		Name:          "repo1",
+		NameWithOwner: "myorg/repo1",
+		URL:           "file://" + origin,
+		SSHURL:        "file://" + origin,
+		DefaultBranch: &ghRefName{Name: "main"},
+	}
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	root := t.TempDir()
+	wtPath := filepath.Join(t.TempDir(), "repo1-feature")
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", root, "-protocol", "https", "myorg/repo1", "feature", wtPath}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeAdd = %d, stderr=%s", code, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "myorg", "repos", "repo1", ".git")); err != nil {
+		t.Fatalf("repo should have been cloned: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wtPath, "file.txt")); err != nil {
+		t.Fatalf("worktree should have been created: %v", err)
+	}
+
+	stateRaw, err := os.ReadFile(filepath.Join(root, "myorg", "state.json"))
+	if err != nil {
+		t.Fatalf("state.json should have been written: %v", err)
+	}
+	var st state
+	if err := json.Unmarshal(stateRaw, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Repos["repo1"].Status != statusCloned {
+		t.Fatalf("state status = %q, want %q", st.Repos["repo1"].Status, statusCloned)
+	}
+}
+
+func TestWorktreeAddRefusesArchivedAfterCloning(t *testing.T) {
+	origin := initTestRepo(t)
+
+	repo := ghRepo{
+		ID:            "R_repo1",
+		Name:          "repo1",
+		NameWithOwner: "myorg/repo1",
+		URL:           "file://" + origin,
+		SSHURL:        "file://" + origin,
+		IsArchived:    true,
+		DefaultBranch: &ghRefName{Name: "main"},
+	}
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	root := t.TempDir()
+	wtPath := filepath.Join(t.TempDir(), "repo1-main")
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", root, "-protocol", "https", "myorg/repo1", "main", wtPath}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("expected failure for an archived repo")
+	}
+	if !strings.Contains(stderr.String(), "archived") {
+		t.Fatalf("stderr does not mention archived: %s", stderr.String())
+	}
+	// The clone must still have happened even though the worktree add is refused.
+	if _, err := os.Stat(filepath.Join(root, "myorg", "repos", "repo1", ".git")); err != nil {
+		t.Fatalf("repo should still have been cloned: %v", err)
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree should not have been created, stat err = %v", err)
+	}
+}
+
+func TestWorktreeAddSkipsCloneWhenAlreadyPresent(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execCommand(context.Background(), filepath.Join(reposDir(cfg), "repo1"), "git", "branch", "feature"); err != nil {
+		t.Fatal(err)
+	}
+
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	var ghCalls int
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			ghCalls++
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "repo1-main")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "feature", wtPath}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeAdd = %d, stderr=%s", code, stderr.String())
+	}
+	// No state.json should have been written: we never went through the
+	// clone-and-record path.
+	if _, err := os.Stat(statePath(cfg)); !os.IsNotExist(err) {
+		t.Fatalf("state.json should not exist when the clone already existed, stat err = %v", err)
+	}
+}
+
+func TestWorktreeRemove(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{Name: "repo1", URL: "file://" + origin}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(reposDir(cfg), "repo1")
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "testorg/repo1", wtPath}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeRemove = %d, stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree should be gone, stat err = %v", err)
+	}
+}
+
+func TestWorktreeRemoveRefusesDirtyWithoutForce(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{Name: "repo1", URL: "file://" + origin}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(reposDir(cfg), "repo1")
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtPath, "file.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "testorg/repo1", wtPath}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("expected failure removing a dirty worktree without --force")
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("worktree should still exist: %v", err)
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	code2 := cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "-force", "testorg/repo1", wtPath}, &stdout2, &stderr2)
+	if code2 != exitSuccess {
+		t.Fatalf("cmdWorktreeRemove --force = %d, stderr=%s", code2, stderr2.String())
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree should be gone after --force, stat err = %v", err)
+	}
+}
+
+func TestWorktreeList(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{Name: "repo1", URL: "file://" + origin}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(reposDir(cfg), "repo1")
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeList(context.Background(), []string{"-root", cfg.Root, "testorg/repo1"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("cmdWorktreeList = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), wtPath) {
+		t.Fatalf("output missing worktree path: %s", stdout.String())
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	code2 := cmdWorktreeList(context.Background(), []string{"-root", cfg.Root, "testorg"}, &stdout2, &stderr2)
+	if code2 != exitSuccess {
+		t.Fatalf("cmdWorktreeList (org) = %d, stderr=%s", code2, stderr2.String())
+	}
+	if !strings.Contains(stdout2.String(), "repo1:") || !strings.Contains(stdout2.String(), wtPath) {
+		t.Fatalf("org-wide output missing repo1 or worktree path: %s", stdout2.String())
+	}
+}
+
+func TestRunWorktreeUnknownSubcommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runWorktree(context.Background(), []string{"frobnicate"}, &stdout, &stderr)
+	if code != exitUsage {
+		t.Fatalf("runWorktree(unknown) = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr.String(), "frobnicate") {
+		t.Fatalf("stderr does not name the bad subcommand: %s", stderr.String())
+	}
+}
+
+func TestRunDispatchesToWorktree(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := ghRepo{Name: "repo1", URL: "file://" + origin}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(reposDir(cfg), "repo1")
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"worktree", "list", "-root", cfg.Root, "testorg/repo1"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("run(worktree list ...) = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), wtPath) {
+		t.Fatalf("output missing worktree path: %s", stdout.String())
+	}
+}

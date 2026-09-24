@@ -47,6 +47,29 @@ gh org-clone my-org               # second run: only fetches what changed
 gh org-clone --dry-run -v my-org  # see what would happen, do nothing
 ```
 
+### Worktrees
+
+Every cloned repo is a normal, non-bare working tree, so `git worktree` works on it as-is. The
+`worktree` subcommand is a thin wrapper that resolves `<org>/<repo>` to that path (cloning first if
+needed) instead of you having to remember `<root>/<org>/repos/<repo>` yourself; git does the rest.
+
+```sh
+# Clones my-org/my-repo first if it isn't already local, then adds a worktree
+# for `some-branch` wherever you point it — e.g. alongside how you keep other
+# working copies, such as ~/code/my-repo-some-branch.
+gh org-clone worktree add my-org/my-repo some-branch ~/code/my-repo-some-branch
+
+gh org-clone worktree list my-org/my-repo     # list one repo's worktrees
+gh org-clone worktree list my-org             # list every repo's worktrees
+gh org-clone worktree remove my-org/my-repo ~/code/my-repo-some-branch
+gh org-clone worktree remove --force my-org/my-repo ~/code/my-repo-some-branch  # even if it's dirty
+```
+
+`worktree add` refuses (after cloning, so the clone still lands) if the repo is archived upstream —
+archived repos aren't expected to get new work. `worktree add`/`remove`/`list` accept `--root`,
+`--protocol`, `--timeout` and `--config`, same as the sync command; `--concurrency`,
+`--max-repos`, `--include-forks` and `--archive` don't apply to a single repo and aren't accepted.
+
 ## Configure
 
 Precedence is **flags > environment > config file > defaults**.
@@ -63,6 +86,7 @@ Precedence is **flags > environment > config file > defaults**.
 | `--force` | — | — | `false` | ignore stored `pushedAt`, re-sync every repo |
 | `--dry-run` | — | — | `false` | print planned actions, do nothing |
 | `-v`, `--verbose` | — | — | `false` | verbose output (e.g. reports skipped forks) |
+| `--yes` | — | — | `false` | don't prompt before removing worktrees to archive a repo they belong to |
 | `--config` | `GH_ORG_CLONE_CONFIG` | — | see below | path to the JSON config file |
 
 Flags follow `gh`'s own convention: every long flag is `--name`; `-v`/`--verbose` is the one flag with a
@@ -106,6 +130,11 @@ everything under it — pass `--root` explicitly if that matters to you.
 - **Nothing is ever deleted because it's missing upstream.** A repo that disappears from the org listing
   (renamed, deleted, or just no longer visible to your token) is reported, never removed locally —
   absence looks identical to lost access.
+- **Archiving a repo with a live `git worktree` asks first.** Deleting a repo's clone out from under a
+  linked worktree elsewhere would permanently break that worktree with no clean recovery, so a normal
+  sync run stops and asks before removing any worktree to proceed with archiving — and, on an
+  unattended run (no terminal on stdin), answers "no" and refuses to archive rather than hang or guess.
+  Pass `--yes` to answer "yes" unattended once you're sure.
 
 ## Verifying a large org wasn't silently truncated
 

@@ -52,6 +52,22 @@ func listRepos(ctx context.Context, cfg config) ([]ghRepo, error) {
 	return repos, nil
 }
 
+// getRepo looks up a single repo by "<org>/<repo>", for commands (worktree
+// add) that operate on one repo instead of an org's entire listing. Fields
+// match ghJSONFields exactly so the two call sites decode identically.
+func getRepo(ctx context.Context, nameWithOwner string) (ghRepo, error) {
+	out, err := runner(ctx, "", "gh", "repo", "view", nameWithOwner, "--json", ghJSONFields)
+	if err != nil {
+		return ghRepo{}, fmt.Errorf("looking up repo %q: %w", nameWithOwner, err)
+	}
+
+	var repo ghRepo
+	if err := json.Unmarshal(out, &repo); err != nil {
+		return ghRepo{}, fmt.Errorf("parsing gh repo view output: %w", err)
+	}
+	return repo, nil
+}
+
 // cloneURL never returns an empty string silently; an empty result must be
 // treated by the caller as a repo-level failure.
 func cloneURL(repo ghRepo, cfg config) string {

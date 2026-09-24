@@ -243,3 +243,33 @@ func TestHeadInfoEmptyRepo(t *testing.T) {
 		t.Fatalf("expected zero values for empty repo, got sha=%q subject=%q committedAt=%v", sha, subject, committedAt)
 	}
 }
+
+func TestLinkedWorktrees(t *testing.T) {
+	dir := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+
+	got, err := linkedWorktrees(context.Background(), cfg, dir)
+	if err != nil {
+		t.Fatalf("linkedWorktrees: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("fresh repo should have no linked worktrees, got %v", got)
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	got, err = linkedWorktrees(context.Background(), cfg, dir)
+	if err != nil {
+		t.Fatalf("linkedWorktrees: %v", err)
+	}
+	wantPath, err := filepath.EvalSymlinks(wtPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != wantPath {
+		t.Fatalf("linkedWorktrees = %v, want [%s]", got, wantPath)
+	}
+}

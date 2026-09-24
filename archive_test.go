@@ -242,3 +242,91 @@ func TestArchiveAdoptsExisting(t *testing.T) {
 		t.Fatalf("archiveRepo invoked git when adopting an existing archive")
 	}
 }
+
+func TestArchiveWithWorktreeRefusesByDefault(t *testing.T) {
+	cfg, repo, dir := setupArchiveRepo(t)
+
+	old := confirmArchiveWithWorktrees
+	t.Cleanup(func() { confirmArchiveWithWorktrees = old })
+	// Simulate "no terminal, cfg.Yes not set" without going through the real
+	// confirm function: stub it to answer exactly what
+	// defaultConfirmArchiveWithWorktrees would answer in that situation.
+	confirmArchiveWithWorktrees = func(cfg config, repoName string, wt []worktreeStatus) (bool, error) {
+		return false, nil
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	_, _, err := archiveRepo(context.Background(), cfg, repo)
+	if err == nil {
+		t.Fatalf("expected an error when the worktree removal is declined")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("clone dir should still exist: %v", err)
+	}
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("worktree should still exist: %v", err)
+	}
+	if _, err := os.Stat(tarballPath(cfg, "repo1")); !os.IsNotExist(err) {
+		t.Fatalf("tarball should not exist, stat err = %v", err)
+	}
+}
+
+func TestArchiveWithWorktreeRemovesOnConfirm(t *testing.T) {
+	cfg, repo, dir := setupArchiveRepo(t)
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	old := confirmArchiveWithWorktrees
+	t.Cleanup(func() { confirmArchiveWithWorktrees = old })
+	var gotRepoName string
+	var gotCount int
+	confirmArchiveWithWorktrees = func(cfg config, repoName string, wt []worktreeStatus) (bool, error) {
+		gotRepoName = repoName
+		gotCount = len(wt)
+		return true, nil
+	}
+
+	if _, _, err := archiveRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatalf("archiveRepo: %v", err)
+	}
+	if gotRepoName != "repo1" || gotCount != 1 {
+		t.Fatalf("confirmArchiveWithWorktrees called with repoName=%q count=%d", gotRepoName, gotCount)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("clone dir should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(tarballPath(cfg, "repo1")); err != nil {
+		t.Fatalf("tarball missing: %v", err)
+	}
+}
+
+func TestArchiveWithWorktreeCfgYesSkipsPrompt(t *testing.T) {
+	cfg, repo, dir := setupArchiveRepo(t)
+	cfg.Yes = true
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if _, err := execCommand(context.Background(), dir, "git", "worktree", "add", "-b", "feature", wtPath, "main"); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+
+	old := confirmArchiveWithWorktrees
+	t.Cleanup(func() { confirmArchiveWithWorktrees = old })
+	confirmArchiveWithWorktrees = defaultConfirmArchiveWithWorktrees
+
+	if _, _, err := archiveRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatalf("archiveRepo: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("clone dir should be gone, stat err = %v", err)
+	}
+}

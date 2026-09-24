@@ -199,6 +199,35 @@ func tags(ctx context.Context, cfg config, dir string) ([]archiveTag, error) {
 	return result, nil
 }
 
+// linkedWorktrees reports every worktree attached to dir other than dir's
+// own primary working tree. "git worktree list --porcelain" always lists the
+// primary worktree first, so the first block is skipped positionally rather
+// than by comparing paths (which would need symlink-aware resolution).
+func linkedWorktrees(ctx context.Context, cfg config, dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+
+	out, err := runner(ctx, dir, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("listing worktrees for %s: %w", dir, err)
+	}
+
+	var paths []string
+	skippedPrimary := false
+	for _, line := range strings.Split(string(out), "\n") {
+		p, ok := strings.CutPrefix(line, "worktree ")
+		if !ok {
+			continue
+		}
+		if !skippedPrimary {
+			skippedPrimary = true
+			continue
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
+}
+
 func setRemoteURL(ctx context.Context, cfg config, dir, url string) error {
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
