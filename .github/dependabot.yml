@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Go module dependencies (go.mod/go.sum).
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      all-go-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 10
+
+  # Actions referenced by workflow files, pinned to SHAs.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 10
