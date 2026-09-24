@@ -531,3 +531,36 @@ func stubGhRepoView(t *testing.T, repo ghRepo) {
 		return old(ctx, dir, name, args...)
 	}
 }
+
+func TestWorktreeAddDoesNotRecloneLocallyArchivedRepo(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, IsArchived: true, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := os.MkdirAll(archivesDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{manifestPath(cfg, "repo1"), tarballPath(cfg, "repo1")} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stubGhRepoView(t, repo)
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "main", wtPath}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("expected failure for an archived repo")
+	}
+	if !strings.Contains(stderr.String(), "already archived locally") {
+		t.Fatalf("stderr should point at the local archive: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(reposDir(cfg), "repo1")); !os.IsNotExist(err) {
+		t.Fatalf("locally archived repo must not be re-cloned, stat err = %v", err)
+	}
+	if _, err := os.Stat(statePath(cfg)); !os.IsNotExist(err) {
+		t.Fatalf("state must not be rewritten, stat err = %v", err)
+	}
+}

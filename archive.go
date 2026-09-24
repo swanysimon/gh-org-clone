@@ -226,6 +226,17 @@ func writeManifest(path string, m archiveManifest) error {
 	return nil
 }
 
+// localArchiveExists reports whether both halves of a repo's local archive
+// (manifest and tarball) are on disk. It does not verify the tarball's
+// contents; archiveRepo does that before trusting it.
+func localArchiveExists(cfg config, repoName string) bool {
+	if _, err := os.Stat(manifestPath(cfg, repoName)); err != nil {
+		return false
+	}
+	_, err := os.Stat(tarballPath(cfg, repoName))
+	return err == nil
+}
+
 func readManifest(path string) (archiveManifest, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -204,6 +204,12 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 	case dirExists && !isGitDir:
 		fmt.Fprintf(stderr, "%s exists but is not a git repository\n", dir)
 		return exitRuntimeFail
+	case !dirExists && repo.IsArchived && localArchiveExists(cfg, repo.Name):
+		// The repo is already on disk, as a tarball: re-cloning it only
+		// for this command to refuse, and for the next sync to archive
+		// it all over again, would be pure waste.
+		fmt.Fprintf(stderr, "repo %q is archived upstream and already archived locally at %s; not adding a worktree\n", repo.NameWithOwner, tarballPath(cfg, repo.Name))
+		return exitRuntimeFail
 	case !dirExists:
 		if err := ensureClonedForWorktree(ctx, cfg, repo, stderr); err != nil {
 			fmt.Fprintln(stderr, err)
