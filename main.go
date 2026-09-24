@@ -146,7 +146,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return exitSuccess
 	}
 
-	results := runTasks(ctx, cfg, tasks)
+	actionable := 0
+	for _, t := range tasks {
+		if t.action != actionSkip {
+			actionable++
+		}
+	}
+	fmt.Fprintf(stderr, "syncing %d repos (%d to clone/fetch/archive, %d unchanged)\n", len(tasks), actionable, len(tasks)-actionable)
+
+	results := runTasks(ctx, cfg, tasks, stderr)
 
 	reposByName := make(map[string]ghRepo, len(repos))
 	for _, r := range repos {
@@ -362,10 +370,55 @@ type result struct {
 	Err         error
 }
 
+// progressReporter prints one line per non-skip task as a worker picks it
+// up, so a long sync run shows activity instead of going silent until the
+// final summary. It is safe for concurrent use by cfg.Concurrency workers.
+type progressReporter struct {
+	mu      sync.Mutex
+	w       io.Writer
+	total   int
+	started int
+}
+
+func newProgressReporter(w io.Writer, total int) *progressReporter {
+	return &progressReporter{w: w, total: total}
+}
+
+var actionVerbs = map[action]string{
+	actionClone:         "cloning",
+	actionFetch:         "fetching",
+	actionArchive:       "archiving",
+	actionAdoptArchived: "adopting existing archive",
+	actionUnarchive:     "unarchiving (repo live again upstream)",
+	actionNotARepo:      "checking",
+}
+
+func (p *progressReporter) starting(name string, act action) {
+	if p == nil {
+		return
+	}
+	verb, ok := actionVerbs[act]
+	if !ok {
+		verb = string(act)
+	}
+	p.mu.Lock()
+	p.started++
+	fmt.Fprintf(p.w, "[%d/%d] %s: %s\n", p.started, p.total, name, verb)
+	p.mu.Unlock()
+}
+
 // runTasks fans work out to cfg.Concurrency workers and fans results back in
 // through a single collector loop. State is mutated only by that loop, in
 // run() — never here — so there is no mutex and no data race.
-func runTasks(ctx context.Context, cfg config, tasks []task) []result {
+func runTasks(ctx context.Context, cfg config, tasks []task, stderr io.Writer) []result {
+	actionable := 0
+	for _, t := range tasks {
+		if t.action != actionSkip {
+			actionable++
+		}
+	}
+	progress := newProgressReporter(stderr, actionable)
+
 	taskCh := make(chan task)
 	resultCh := make(chan result)
 
@@ -375,7 +428,7 @@ func runTasks(ctx context.Context, cfg config, tasks []task) []result {
 		go func() {
 			defer wg.Done()
 			for t := range taskCh {
-				resultCh <- processTask(ctx, cfg, t)
+				resultCh <- processTask(ctx, cfg, t, progress)
 			}
 		}()
 	}
@@ -399,9 +452,13 @@ func runTasks(ctx context.Context, cfg config, tasks []task) []result {
 	return results
 }
 
-func processTask(ctx context.Context, cfg config, t task) result {
+func processTask(ctx context.Context, cfg config, t task, progress *progressReporter) result {
 	repo := t.repo
 	res := result{Name: repo.Name, Action: t.action}
+
+	if t.action != actionSkip {
+		progress.starting(repo.Name, t.action)
+	}
 
 	switch t.action {
 	case actionSkip:

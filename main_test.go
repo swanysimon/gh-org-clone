@@ -267,6 +267,12 @@ func TestRunEndToEnd(t *testing.T) {
 	if !strings.Contains(summary, "cloned=2") || !strings.Contains(summary, "archived=1") {
 		t.Fatalf("unexpected summary: %q", summary)
 	}
+	if !strings.Contains(stderr.String(), "syncing 3 repos") {
+		t.Fatalf("stderr missing progress summary line: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "normal: cloning") {
+		t.Fatalf("stderr missing per-repo progress line: %q", stderr.String())
+	}
 
 	// Incremental assertion: a second run must issue exactly one gh call
 	// and zero git calls, with every repo (live or already archived)
