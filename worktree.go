@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -46,6 +47,18 @@ func printWorktreeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gh org-clone worktree list <org>/<repo>|<org>")
 }
 
+// newWorktreeFlagSet makes a subcommand's flag set whose -h/--help output
+// is the subcommand's own usage line followed by its flags.
+func newWorktreeFlagSet(name, usage string, stderr io.Writer) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(stderr, "usage: "+usage)
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
 // resolveWorktreeConfig applies the same root/protocol/timeout/config
 // precedence (flags > env > file > defaults) as the sync command, but only
 // for the flags worktree subcommands need; cfg.Org is left unset for the
@@ -58,7 +71,8 @@ func resolveWorktreeConfig(fs *flag.FlagSet, args []string) (config, []string, e
 	fs.StringVar(&timeoutStr, "timeout", "", "per-subprocess timeout (e.g. 30m)")
 	fs.StringVar(&configPath, "config", "", "path to a JSON config file")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return config{}, nil, err
 	}
 
@@ -118,7 +132,7 @@ func resolveWorktreeConfig(fs *flag.FlagSet, args []string) (config, []string, e
 		return config{}, nil, fmt.Errorf("timeout must be > 0, got %s", cfg.Timeout)
 	}
 
-	return cfg, fs.Args(), nil
+	return cfg, positional, nil
 }
 
 // parseOrgRepo splits "<org>/<repo>" and validates both halves against the
@@ -140,15 +154,18 @@ func parseOrgRepo(s string) (org, repo string, err error) {
 }
 
 func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("gh org-clone worktree add", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	const usage = "gh org-clone worktree add [flags] <org>/<repo> <branch> <path>"
+	fs := newWorktreeFlagSet("gh org-clone worktree add", usage, stderr)
 	cfg, rest, err := resolveWorktreeConfig(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		return exitSuccess
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitUsage
 	}
 	if len(rest) != 3 {
-		fmt.Fprintln(stderr, "usage: gh org-clone worktree add <org>/<repo> <branch> <path>")
+		fmt.Fprintln(stderr, "usage: "+usage)
 		return exitUsage
 	}
 	org, repoName, err := parseOrgRepo(rest[0])
@@ -321,17 +338,20 @@ func ensureClonedForWorktree(ctx context.Context, cfg config, repo ghRepo, stder
 }
 
 func cmdWorktreeRemove(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("gh org-clone worktree remove", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	const usage = "gh org-clone worktree remove [--force] [flags] <org>/<repo> <path>"
+	fs := newWorktreeFlagSet("gh org-clone worktree remove", usage, stderr)
 	var force bool
 	fs.BoolVar(&force, "force", false, "remove even if the worktree has uncommitted changes")
 	cfg, rest, err := resolveWorktreeConfig(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		return exitSuccess
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitUsage
 	}
 	if len(rest) != 2 {
-		fmt.Fprintln(stderr, "usage: gh org-clone worktree remove [--force] <org>/<repo> <path>")
+		fmt.Fprintln(stderr, "usage: "+usage)
 		return exitUsage
 	}
 	org, repoName, err := parseOrgRepo(rest[0])
@@ -371,15 +391,18 @@ func cmdWorktreeRemove(ctx context.Context, args []string, stdout, stderr io.Wri
 }
 
 func cmdWorktreeList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("gh org-clone worktree list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	const usage = "gh org-clone worktree list [flags] <org>/<repo>|<org>"
+	fs := newWorktreeFlagSet("gh org-clone worktree list", usage, stderr)
 	cfg, rest, err := resolveWorktreeConfig(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		return exitSuccess
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitUsage
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(stderr, "usage: gh org-clone worktree list <org>/<repo>|<org>")
+		fmt.Fprintln(stderr, "usage: "+usage)
 		return exitUsage
 	}
 

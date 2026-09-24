@@ -246,7 +246,8 @@ func TestWorktreeRemoveRefusesDirtyWithoutForce(t *testing.T) {
 	}
 
 	var stdout2, stderr2 bytes.Buffer
-	code2 := cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "-force", "testorg/repo1", wtPath}, &stdout2, &stderr2)
+	// Flags after the positionals must be honoured too.
+	code2 := cmdWorktreeRemove(context.Background(), []string{"-root", cfg.Root, "testorg/repo1", wtPath, "--force"}, &stdout2, &stderr2)
 	if code2 != exitSuccess {
 		t.Fatalf("cmdWorktreeRemove --force = %d, stderr=%s", code2, stderr2.String())
 	}

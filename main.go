@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -66,6 +67,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() { printUsage(stderr) }
 
 	cfg, err := resolveConfig(fs, args, stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return exitSuccess
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitUsage
@@ -598,12 +602,13 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 	fs.BoolVar(&yes, "yes", false, "don't prompt before removing worktrees to archive a repo they belong to")
 	fs.StringVar(&configPath, "config", "", "path to a JSON config file")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		return config{}, err
 	}
-	if fs.NArg() != 1 {
+	if len(positional) != 1 {
 		fs.Usage()
-		return config{}, fmt.Errorf("expected exactly one org argument, got %d", fs.NArg())
+		return config{}, fmt.Errorf("expected exactly one org argument, got %d", len(positional))
 	}
 
 	cfg := defaultConfig()
@@ -672,7 +677,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 		return config{}, flagErr
 	}
 
-	cfg.Org = fs.Arg(0)
+	cfg.Org = positional[0]
 	cfg.Force = force
 	cfg.DryRun = dryRun
 	cfg.Verbose = verbose
@@ -682,6 +687,28 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// parseInterspersed parses flags wherever they appear among the positional
+// args, as gh (and cobra) do, rather than stopping at the first positional
+// arg like the standard flag package. A "--" still ends flag parsing, so a
+// positional arg that starts with "-" can be passed after it.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return positional, nil
+		}
+		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
+			return append(positional, rest...), nil
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
+	}
 }
 
 func resolveConfigPath(flagValue string) string {

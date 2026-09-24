@@ -96,7 +96,8 @@ Precedence is **flags > environment > config file > defaults**.
 | `--config` | `GH_ORG_CLONE_CONFIG` | — | see below | path to the JSON config file |
 
 Flags follow `gh`'s own convention: every long flag is `--name`; `-v`/`--verbose` is the one flag with a
-one-letter shorthand, again matching `gh`.
+one-letter shorthand, again matching `gh`. Flags can go before or after positional arguments; `--` ends
+flag parsing. Boolean flags take an explicit value to turn off a default, e.g. `--archive=false`.
 
 The config file is JSON, e.g.:
 

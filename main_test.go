@@ -491,3 +491,65 @@ func TestRunWarnsWhenListingMayBeTruncated(t *testing.T) {
 		}
 	}
 }
+
+func TestParseInterspersed(t *testing.T) {
+	cases := []struct {
+		args    []string
+		wantPos []string
+		wantV   bool
+		wantR   string
+	}{
+		{[]string{"org"}, []string{"org"}, false, ""},
+		{[]string{"-v", "org"}, []string{"org"}, true, ""},
+		{[]string{"org", "-v"}, []string{"org"}, true, ""},
+		{[]string{"a", "--root", "/x", "b", "--verbose", "c"}, []string{"a", "b", "c"}, true, "/x"},
+		{[]string{"a", "--", "-b", "-v"}, []string{"a", "-b", "-v"}, false, ""},
+	}
+	for _, tc := range cases {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		v := fs.Bool("verbose", false, "")
+		fs.BoolVar(v, "v", false, "")
+		r := fs.String("root", "", "")
+		pos, err := parseInterspersed(fs, tc.args)
+		if err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if strings.Join(pos, "|") != strings.Join(tc.wantPos, "|") || *v != tc.wantV || *r != tc.wantR {
+			t.Fatalf("%v: got pos=%q v=%v root=%q, want pos=%q v=%v root=%q", tc.args, pos, *v, *r, tc.wantPos, tc.wantV, tc.wantR)
+		}
+	}
+}
+
+func TestConfigFlagsAfterOrg(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("HOME", t.TempDir())
+
+	cfg, err := resolveConfig(newFlagSet(), []string{"myorg", "--dry-run", "--concurrency", "3"}, os.Stderr)
+	if err != nil {
+		t.Fatalf("resolveConfig: %v", err)
+	}
+	if cfg.Org != "myorg" || !cfg.DryRun || cfg.Concurrency != 3 {
+		t.Fatalf("flags after the org were not applied: %+v", cfg)
+	}
+}
+
+func TestHelpExitsZero(t *testing.T) {
+	for _, args := range [][]string{
+		{"-h"},
+		{"--help"},
+		{"worktree", "add", "-h"},
+		{"worktree", "remove", "--help"},
+		{"worktree", "list", "-h"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), args, &stdout, &stderr); code != exitSuccess {
+			t.Fatalf("run(%v) = %d, want %d; stderr=%s", args, code, exitSuccess, stderr.String())
+		}
+		if !strings.Contains(strings.ToLower(stderr.String()), "usage") {
+			t.Fatalf("run(%v) printed no usage: %s", args, stderr.String())
+		}
+		if strings.Contains(stderr.String(), "help requested") {
+			t.Fatalf("run(%v) printed the flag package's error: %s", args, stderr.String())
+		}
+	}
+}
