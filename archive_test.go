@@ -52,6 +52,8 @@ func setupArchiveRepo(t *testing.T) (cfg config, repo ghRepo, dir string) {
 	}
 	// Commit them so the working tree is clean, which archiveRepo requires.
 	for _, args := range [][]string{
+		{"config", "user.name", "Test"},
+		{"config", "user.email", "test@example.com"},
 		{"add", "-A"},
 		{"commit", "--quiet", "-m", "add fixtures"},
 	} {
