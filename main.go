@@ -96,15 +96,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return exitRuntimeFail
 		}
 
-		lp := lockPath(cfg)
-		lockFile, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		release, err := acquireLock(cfg)
 		if err != nil {
-			fmt.Fprintf(stderr, "another run appears to be in progress (lock file %s exists; delete it if a previous run died): %v\n", lp, err)
+			fmt.Fprintln(stderr, err)
 			return exitRuntimeFail
 		}
-		fmt.Fprintf(lockFile, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
-		lockFile.Close()
-		defer os.Remove(lp)
+		defer release()
 
 		sweepTempClones(cfg)
 	}

@@ -384,3 +384,48 @@ func TestWorktreeRelativePathResolvesAgainstCwd(t *testing.T) {
 		t.Fatalf("worktree should be gone, stat err = %v", err)
 	}
 }
+
+// worktree add must respect a held org lock even when no clone is needed:
+// a concurrent sync may be about to archive (and delete) this clone.
+func TestWorktreeAddRefusesWhileLockHeld(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+	repo := ghRepo{ID: "R_repo1", Name: "repo1", NameWithOwner: "testorg/repo1", URL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}}
+	if err := cloneRepo(context.Background(), cfg, repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath(cfg), []byte("999 sometime\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repoJSON, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return repoJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	var stdout, stderr bytes.Buffer
+	code := cmdWorktreeAdd(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "testorg/repo1", "main", wtPath}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatalf("worktree add succeeded despite a held lock")
+	}
+	if !strings.Contains(stderr.String(), lockPath(cfg)) {
+		t.Fatalf("stderr does not name the lock file: %s", stderr.String())
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("worktree should not have been created, stat err = %v", err)
+	}
+	if _, err := os.Stat(lockPath(cfg)); err != nil {
+		t.Fatalf("someone else's lock must not be removed: %v", err)
+	}
+}

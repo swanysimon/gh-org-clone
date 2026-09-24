@@ -184,6 +184,16 @@ func cmdWorktreeAdd(ctx context.Context, args []string, stdout, stderr io.Writer
 		return exitRuntimeFail
 	}
 
+	// Held for the whole command, not just the clone: a sync run archiving
+	// this repo checks for linked worktrees and then deletes the clone, so
+	// a worktree added in between would be orphaned.
+	release, err := acquireLock(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return exitRuntimeFail
+	}
+	defer release()
+
 	dir := filepath.Join(reposDir(cfg), repo.Name)
 	_, dirErr := os.Stat(dir)
 	dirExists := dirErr == nil
@@ -234,24 +244,11 @@ func absWorktreePath(p string) (string, error) {
 	return abs, nil
 }
 
-// ensureClonedForWorktree clones a repo outside of a normal sync run, so it
-// takes the same per-org lock a sync run holds (refusing rather than racing
-// it) and writes the same state.json entry a sync run would, so a later sync
-// doesn't find a directory it doesn't remember creating.
+// ensureClonedForWorktree clones a repo outside of a normal sync run and
+// writes the same state.json entry a sync run would, so a later sync doesn't
+// find a directory it doesn't remember creating. The caller must hold the
+// org lock.
 func ensureClonedForWorktree(ctx context.Context, cfg config, repo ghRepo, stderr io.Writer) error {
-	if err := os.MkdirAll(orgDir(cfg), 0o700); err != nil {
-		return err
-	}
-
-	lp := lockPath(cfg)
-	lockFile, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("a sync run appears to be in progress for this org (lock file %s exists); try again once it finishes", lp)
-	}
-	fmt.Fprintf(lockFile, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
-	lockFile.Close()
-	defer os.Remove(lp)
-
 	if err := cloneRepo(ctx, cfg, repo); err != nil {
 		return err
 	}

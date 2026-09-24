@@ -43,6 +43,21 @@ func archivesDir(cfg config) string { return filepath.Join(orgDir(cfg), "archive
 func statePath(cfg config) string   { return filepath.Join(orgDir(cfg), "state.json") }
 func lockPath(cfg config) string    { return filepath.Join(orgDir(cfg), "lock") }
 
+// acquireLock takes the per-org lock that serializes every command which
+// mutates an org's clones or state (a sync run, and worktree add). It fails
+// rather than waits: a held lock usually means a long sync run, and a stale
+// one from a crashed run needs a human to delete it.
+func acquireLock(cfg config) (release func(), err error) {
+	lp := lockPath(cfg)
+	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("another gh-org-clone run appears to be in progress for org %q (lock file %s exists; delete it if a previous run died): %w", cfg.Org, lp, err)
+	}
+	fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+	f.Close()
+	return func() { os.Remove(lp) }, nil
+}
+
 // loadState never errors: a missing file yields an empty state, and a file
 // that fails to parse or carries the wrong version warns and yields an empty
 // state. Losing the cache costs one re-verify pass and destroys nothing,
