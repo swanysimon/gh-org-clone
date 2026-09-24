@@ -535,13 +535,19 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "USAGE")
 	fmt.Fprintln(w, "  gh org-clone [flags] <org>")
-	fmt.Fprintln(w, "  gh org-clone worktree add <org>/<repo> <branch> <path>")
-	fmt.Fprintln(w, "  gh org-clone worktree remove [--force] <org>/<repo> <path>")
-	fmt.Fprintln(w, "  gh org-clone worktree list <org>/<repo>|<org>")
+	fmt.Fprintln(w, "  gh org-clone worktree add [flags] <org>/<repo> <branch> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree remove [--force] [flags] <org>/<repo> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree list [flags] <org>/<repo>|<org>")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run \"gh org-clone worktree <command> --help\" for a worktree command's flags.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "FLAGS")
+	printFlagTable(w, usageFlags(defaultConfig()))
+}
 
-	entries := usageFlags(defaultConfig())
+// printFlagTable renders flags the way gh's own --help does: an optional
+// "-x, " shorthand column, "--long type", then the description and default.
+func printFlagTable(w io.Writer, entries []flagHelp) {
 	left := make([]string, len(entries))
 	width := 0
 	for i, h := range entries {
@@ -571,6 +577,28 @@ func printUsage(w io.Writer) {
 	}
 }
 
+// flagHelpsFromSet describes the flags actually defined on fs, so a
+// subcommand's help can't drift from what it accepts. fs's own defaults are
+// zero values (real defaults are resolved later, after env and config), so
+// the shown default and value type come from usageFlags when it knows the
+// flag.
+func flagHelpsFromSet(fs *flag.FlagSet, d config) []flagHelp {
+	known := map[string]flagHelp{}
+	for _, h := range usageFlags(d) {
+		known[h.long] = h
+	}
+	var out []flagHelp
+	fs.VisitAll(func(f *flag.Flag) {
+		hint, usage := flag.UnquoteUsage(f)
+		h := flagHelp{long: f.Name, valueHint: hint, usage: usage}
+		if k, ok := known[f.Name]; ok {
+			h.valueHint, h.def, h.quoteDef = k.valueHint, k.def, k.quoteDef
+		}
+		out = append(out, h)
+	})
+	return out
+}
+
 // resolveConfig applies flags > env > file > defaults. fs.Visit reports only
 // flags the caller actually typed, so an unset flag never clobbers a value
 // already set by the env or the config file.
@@ -591,7 +619,7 @@ func resolveConfig(fs *flag.FlagSet, args []string, stderr io.Writer) (config, e
 	)
 	fs.StringVar(&root, "root", "", "root directory for cloned orgs")
 	fs.IntVar(&concurrency, "concurrency", 0, "number of repos to sync in parallel")
-	fs.StringVar(&timeoutStr, "timeout", "", "per-subprocess timeout (e.g. 30m)")
+	fs.StringVar(&timeoutStr, "timeout", "", "per-subprocess timeout")
 	fs.IntVar(&maxRepos, "max-repos", 0, "maximum repos to list from the org (gh --limit)")
 	fs.StringVar(&protocol, "protocol", "", "clone protocol: ssh or https")
 	fs.BoolVar(&includeForks, "include-forks", false, "include forked repos")

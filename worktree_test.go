@@ -612,3 +612,23 @@ func TestWorktreeAddAppliesTimeoutToGhLookup(t *testing.T) {
 		t.Fatalf("stderr should report the timeout: %s", stderr.String())
 	}
 }
+
+// Worktree help must list exactly the subcommand's flags, in gh's
+// double-dash style with real (config-resolved) defaults.
+func TestWorktreeHelpUsesGhFlagStyle(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"worktree", "remove", "--help"}, &stdout, &stderr); code != exitSuccess {
+		t.Fatalf("exit = %d", code)
+	}
+	help := stderr.String()
+	for _, want := range []string{"--root string", "--protocol string", `(default "ssh")`, "--timeout duration", "(default 30m0s)", "--config string", "--force"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help missing %q:\n%s", want, help)
+		}
+	}
+	for _, unwanted := range []string{"  -root", "  -force", "--concurrency", "--yes"} {
+		if strings.Contains(help, unwanted) {
+			t.Fatalf("help should not contain %q:\n%s", unwanted, help)
+		}
+	}
+}

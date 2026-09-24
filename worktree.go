@@ -47,9 +47,9 @@ func runWorktree(ctx context.Context, args []string, stdout, stderr io.Writer) i
 
 func printWorktreeUsage(w io.Writer) {
 	fmt.Fprintln(w, "USAGE")
-	fmt.Fprintln(w, "  gh org-clone worktree add <org>/<repo> <branch> <path>")
-	fmt.Fprintln(w, "  gh org-clone worktree remove [--force] <org>/<repo> <path>")
-	fmt.Fprintln(w, "  gh org-clone worktree list <org>/<repo>|<org>")
+	fmt.Fprintln(w, "  gh org-clone worktree add [flags] <org>/<repo> <branch> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree remove [--force] [flags] <org>/<repo> <path>")
+	fmt.Fprintln(w, "  gh org-clone worktree list [flags] <org>/<repo>|<org>")
 }
 
 // newWorktreeFlagSet makes a subcommand's flag set whose -h/--help output
@@ -58,8 +58,11 @@ func newWorktreeFlagSet(name, usage string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: "+usage)
-		fs.PrintDefaults()
+		fmt.Fprintln(stderr, "USAGE")
+		fmt.Fprintln(stderr, "  "+usage)
+		fmt.Fprintln(stderr)
+		fmt.Fprintln(stderr, "FLAGS")
+		printFlagTable(stderr, flagHelpsFromSet(fs, defaultConfig()))
 	}
 	return fs
 }
@@ -73,7 +76,7 @@ func resolveWorktreeConfig(fs *flag.FlagSet, args []string) (config, []string, e
 	var root, protocol, timeoutStr, configPath string
 	fs.StringVar(&root, "root", "", "root directory for cloned orgs")
 	fs.StringVar(&protocol, "protocol", "", "clone protocol: ssh or https")
-	fs.StringVar(&timeoutStr, "timeout", "", "per-subprocess timeout (e.g. 30m)")
+	fs.StringVar(&timeoutStr, "timeout", "", "per-subprocess timeout")
 	fs.StringVar(&configPath, "config", "", "path to a JSON config file")
 
 	positional, err := parseInterspersed(fs, args)
