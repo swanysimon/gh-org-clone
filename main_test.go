@@ -357,7 +357,73 @@ func TestRunDryRun(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "testorg", "repos", "repo1")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run should not create a clone, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "testorg", "state.json")); !os.IsNotExist(err) {
-		t.Fatalf("dry-run should not create state.json, stat err = %v", err)
+	if _, err := os.Stat(filepath.Join(root, "testorg")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create the org directory (or lock/state inside it), stat err = %v", err)
+	}
+}
+
+func TestRunDryRunPlansRenameWithoutPerformingIt(t *testing.T) {
+	origin := initTestRepo(t)
+	cfg := testConfig(t, t.TempDir())
+	cfg.Protocol = "https"
+	mustMkReposDir(t, cfg)
+
+	pushedAt := time.Now().Truncate(time.Second)
+	if err := cloneRepo(context.Background(), cfg, ghRepo{Name: "oldname", URL: "file://" + origin}); err != nil {
+		t.Fatal(err)
+	}
+	st := state{Version: stateVersion, Org: cfg.Org, Repos: map[string]repoState{
+		"oldname": {ID: "R1", PushedAt: pushedAt, Status: statusCloned},
+	}}
+	if err := saveState(statePath(cfg), st); err != nil {
+		t.Fatal(err)
+	}
+	// A stale temp clone must also survive a dry run.
+	tmpClone := filepath.Join(reposDir(cfg), ".tmp-leftover")
+	if err := os.Mkdir(tmpClone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := []ghRepo{
+		{ID: "R1", Name: "newname", NameWithOwner: "testorg/newname", URL: "file://" + origin, SSHURL: "file://" + origin, DefaultBranch: &ghRefName{Name: "main"}, PushedAt: pushedAt},
+	}
+	reposJSON, err := json.Marshal(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := runner
+	t.Cleanup(func() { runner = old })
+	runner = func(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
+		if name == "gh" {
+			return reposJSON, nil
+		}
+		return old(ctx, dir, name, args...)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-root", cfg.Root, "-protocol", "https", "-dry-run", "testorg"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("run() = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "newname: skip") || !strings.Contains(stdout.String(), `rename from "oldname"`) {
+		t.Fatalf("dry-run output should plan the rename and then skip: %s", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "not returned by gh repo list") {
+		t.Fatalf("renamed repo should not be reported as missing: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(reposDir(cfg), "oldname", ".git")); err != nil {
+		t.Fatalf("dry-run must not move the old directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(reposDir(cfg), "newname")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not create the new directory, stat err = %v", err)
+	}
+	if _, err := os.Stat(tmpClone); err != nil {
+		t.Fatalf("dry-run must not sweep temp clones: %v", err)
+	}
+	if _, err := os.Stat(lockPath(cfg)); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not leave or take a lock, stat err = %v", err)
+	}
+	if got := loadState(statePath(cfg), cfg.Org, &stderr); got.Repos["oldname"].ID != "R1" {
+		t.Fatalf("dry-run must not rewrite state, got %+v", got.Repos)
 	}
 }

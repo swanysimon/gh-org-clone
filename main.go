@@ -83,26 +83,31 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitRuntimeFail
-	}
-	if err := os.MkdirAll(archivesDir(cfg), 0o700); err != nil {
-		fmt.Fprintln(stderr, err)
-		return exitRuntimeFail
-	}
+	// A dry run only reads: no directories, no lock file, no temp-clone
+	// sweep. Without the lock it may observe a concurrent run's in-progress
+	// state, which is acceptable for a report that changes nothing.
+	if !cfg.DryRun {
+		if err := os.MkdirAll(reposDir(cfg), 0o700); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitRuntimeFail
+		}
+		if err := os.MkdirAll(archivesDir(cfg), 0o700); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitRuntimeFail
+		}
 
-	lp := lockPath(cfg)
-	lockFile, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		fmt.Fprintf(stderr, "another run appears to be in progress (lock file %s exists; delete it if a previous run died): %v\n", lp, err)
-		return exitRuntimeFail
-	}
-	fmt.Fprintf(lockFile, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
-	lockFile.Close()
-	defer os.Remove(lp)
+		lp := lockPath(cfg)
+		lockFile, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			fmt.Fprintf(stderr, "another run appears to be in progress (lock file %s exists; delete it if a previous run died): %v\n", lp, err)
+			return exitRuntimeFail
+		}
+		fmt.Fprintf(lockFile, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+		lockFile.Close()
+		defer os.Remove(lp)
 
-	sweepTempClones(cfg)
+		sweepTempClones(cfg)
+	}
 
 	repos, err := listRepos(ctx, cfg)
 	if err != nil {
@@ -258,12 +263,27 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 		}
 		seen[repo.Name] = true
 
+		// In a dry run a pending rename is planned, not performed: the
+		// decision is made against the old directory and state entry, as
+		// if the rename had already happened.
+		renamedFrom := ""
 		if oldName, ok := stateNameByID[repo.ID]; ok && oldName != repo.Name {
-			fixupRename(ctx, cfg, st, oldName, repo, stderr)
+			if cfg.DryRun {
+				if renameApplies(cfg, oldName, repo.Name) {
+					renamedFrom = oldName
+				}
+			} else {
+				fixupRename(ctx, cfg, st, oldName, repo, stderr)
+			}
 		}
 
 		prev, known := st.Repos[repo.Name]
 		dir := filepath.Join(reposDir(cfg), repo.Name)
+		if renamedFrom != "" {
+			seen[renamedFrom] = true
+			prev, known = st.Repos[renamedFrom]
+			dir = filepath.Join(reposDir(cfg), renamedFrom)
+		}
 		_, dirErr := os.Stat(dir)
 		dirExists := dirErr == nil
 		_, gitErr := os.Stat(filepath.Join(dir, ".git"))
@@ -272,6 +292,9 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 		manifestExists := manErr == nil
 
 		act, reason := decide(repo, prev, known, dirExists, isGitDir, manifestExists, cfg)
+		if renamedFrom != "" {
+			reason = fmt.Sprintf("rename from %q, then: %s", renamedFrom, reason)
+		}
 		tasks = append(tasks, task{repo: repo, action: act, reason: reason, prev: prev})
 	}
 	return tasks, seen
@@ -280,14 +303,11 @@ func buildTasks(ctx context.Context, cfg config, repos []ghRepo, st state, stder
 // fixupRename moves a renamed repo's directory and state entry without an
 // orphaned directory plus a full re-clone.
 func fixupRename(ctx context.Context, cfg config, st state, oldName string, repo ghRepo, stderr io.Writer) {
+	if !renameApplies(cfg, oldName, repo.Name) {
+		return
+	}
 	oldDir := filepath.Join(reposDir(cfg), oldName)
 	newDir := filepath.Join(reposDir(cfg), repo.Name)
-	if _, err := os.Stat(oldDir); err != nil {
-		return
-	}
-	if _, err := os.Stat(newDir); err == nil {
-		return
-	}
 	if err := os.Rename(oldDir, newDir); err != nil {
 		fmt.Fprintf(stderr, "error: renaming %q to %q: %v\n", oldName, repo.Name, err)
 		return
@@ -299,6 +319,16 @@ func fixupRename(ctx context.Context, cfg config, st state, oldName string, repo
 			fmt.Fprintf(stderr, "warning: could not update remote url for renamed repo %q: %v\n", repo.Name, err)
 		}
 	}
+}
+
+// renameApplies reports whether a renamed repo's old directory exists and
+// its new one does not, i.e. whether fixupRename would move anything.
+func renameApplies(cfg config, oldName, newName string) bool {
+	if _, err := os.Stat(filepath.Join(reposDir(cfg), oldName)); err != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(reposDir(cfg), newName))
+	return os.IsNotExist(err)
 }
 
 // result carries a worker's outcome. Errors travel in this struct, never
